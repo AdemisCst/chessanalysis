@@ -49,3 +49,9 @@ test('profundidades diferentes continuam separadas', () => {
         DB.analysisKey('g_1', 12, 'stockfish-19-lite-single')
     );
 });
+
+test('fila usa exatamente a mesma chave da análise', () => {
+    assert.equal(DB.queueKey('g_1', 12, 'stockfish-19-lite-single'), DB.analysisKey('g_1', 12, 'stockfish-19-lite-single'));
+    assert.equal(DB.queueKey('g_1', 12), 'g_1@12');
+    assert.equal(DB.queueKey('g_1', 12, 'stockfish-10-legacy'), 'g_1@12@stockfish-10-legacy');
+});

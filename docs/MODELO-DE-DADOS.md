@@ -1,12 +1,13 @@
 # Modelo de dados — Chess-Analysis
 
-**Versão:** 1.2 — Fase 2 (proveniência e WDL no cálculo)  
-**Atualizado em:** 17/11/2026  
+**Versão:** 1.3 — Fase 3/M1 (fila e checkpoints)  
+**Atualizado em:** 18/11/2026  
 **Estado:** contratos documentados; persistência de `PlayerIdentity` fica para a
 Fase 5. O `wdl`, a `version: 3`, a chave `gameId@depth@build` e a migração de
 proveniência estão **implementados** (Tarefa 2). As **7 categorias atuais estão
 aprovadas**; as 3 categorias restantes (Grande Lance, Livro, Bom) estão
-**deferidas** para a Fase 2.5/5 — ver §3.2.
+**deferidas** para a Fase 2.5/5 — ver §3.2. O banco está na **versão 2** desde a
+M1 da Fase 3, com os stores `queue` e `checkpoints` — ver §5.
 
 Este documento descreve as estruturas **realmente usadas** hoje e os contratos
 previstos. Onde a estrutura ainda não existe no código, o texto indica isso.
@@ -19,8 +20,10 @@ previstos. Onde a estrutura ainda não existe no código, o texto indica isso.
 - Datas de calendário usam `YYYY-MM-DD` (`dateISO`).
 - Datas de operação usam epoch em milissegundos (`createdAt`, `importedAt`).
 - Campos ausentes são omitidos ou `null`; nunca preenchidos com dados inventados.
-- O banco IndexedDB mantém o nome legado `acervo64` e a versão `1` para não
-  apagar a biblioteca existente. O nome é um identificador de compatibilidade.
+- O banco IndexedDB mantém o nome legado `acervo64` para não apagar a
+  biblioteca existente. O nome é um identificador de compatibilidade. A versão
+  é `2` desde a M1 da Fase 3; bancos em versão mais nova são abertos **sem
+  rebaixar** (ver §5.5).
 
 ---
 
@@ -410,25 +413,120 @@ dependem dessa associação. Sem ela, esses campos permanecem indefinidos.
 
 ## 5. Fila e checkpoints (Fase 3)
 
-Contrato previsto, ainda não implementado:
+**Estado: implementado na M1.** O banco está na versão `2`, com os stores
+`queue` e `checkpoints`. As regras puras ficam em `js/queue.js`; a persistência,
+em `js/storage.js`. Não há interface nem integração com o motor nesta etapa
+(M2–M6).
 
-```json
-{
-  "id": "queue-001",
-  "scope": ["gameId1", "gameId2"],
-  "config": { "depth": 12, "multiPv": 1, "engineVersion": "a-validar" },
-  "state": "pending|running|paused|interrupted|done|cancelled|error",
-  "completed": ["gameId1"],
-  "lastCheckpoint": { "gameId": "gameId2", "position": 17 },
-  "createdAt": 0,
-  "updatedAt": 0
-}
-```
+### 5.1. Separação de stores
 
-Regras: gravar após unidades verificáveis; nunca marcar tarefa interrompida
-como concluída; retomar apenas checkpoints consistentes. O campo
-`config.engineVersion` deverá receber o `engineId` real devolvido pelo handshake
-UCI, não um rótulo fixo.
+`queue` e `checkpoints` são stores **separados** de `analysis` de propósito:
+
+- uma análise parcial **nunca** entra em estatísticas, relatório ou gráfico;
+- apagar uma partida remove fila e checkpoint dela sem tocar nas análises de
+  outras partidas;
+- o backup JSON (`exportJson`) **não** exporta fila nem checkpoint: são estado
+  efêmero, reconstruível e específico da máquina.
+
+A identidade é a mesma da análise: `DB.queueKey(gameId, depth, build)` delega
+para `DB.analysisKey`, produzindo `gameId@depth@build` (ou `gameId@depth` quando
+o build é omitido). Fila, checkpoint e resultado falam exatamente do mesmo alvo;
+não existe uma segunda regra de identidade.
+
+### 5.2. Item da fila (`queue`)
+
+Chave: `key`. Índices: `state`, `priority`, `gameId`.
+
+| Campo | Tipo | Regra |
+|---|---|---|
+| `key` | string | `gameId@depth@build` |
+| `gameId` | string | partida alvo |
+| `depth` | number | profundidade solicitada, inteiro ≥ 1 |
+| `engineBuild` | string \| null | build estável (`stockfish-19-lite-single`) |
+| `state` | enum | ver §5.3 |
+| `priority` | number | menor primeiro; `Date.now() + índice do lote` |
+| `attempts` | number | começa em `0`; incrementado só por retry manual |
+| `lastError` | string \| null | motivo da última falha |
+| `createdAt`, `updatedAt` | number | epoch ms |
+| `startedAt`, `finishedAt` | number \| null | preenchidos ao executar/concluir |
+| `positionsDone` | number | progresso verificado; começa em `0` |
+| `positionsTotal` | number \| null | `null` quando desconhecido — **nunca** `0` por omissão |
+| `leaseOwner` | string \| null | reservado ao lease de aba (M4); nasce `null` |
+| `heartbeatAt` | number \| null | reservado ao lease de aba (M4); nasce `null` |
+
+Item terminal (`done`/`canceled`) permanece no store para histórico e diagnóstico,
+mas **não ocupa vaga** no teto. A remoção física é feita por `removeQueueItem`,
+`clearQueue` ou `deleteGame`.
+
+### 5.3. Estados e regras da fila
+
+| Estado | Significado | Ocupa vaga? |
+|---|---|---|
+| `pending` | aguardando a vez | sim |
+| `running` | em execução | sim |
+| `paused` | pausada pelo usuário | sim |
+| `interrupted` | aba fechou/recarregou ou lease expirou | sim |
+| `error` | falhou; exige retry **manual** | sim |
+| `done` | concluída | não |
+| `canceled` | cancelada pelo usuário | não |
+
+Regras implementadas em `js/queue.js`:
+
+1. `Queue.normalize` devolve o contrato completo com defaults seguros e
+   **descarta** entrada sem `key`, sem `gameId` ou com `depth` inválida.
+   `positionsTotal` ausente/inválido vira `null`, não `0`.
+2. `Queue.plan(active, candidates, max)` deduplica contra os itens ativos **e
+   dentro do próprio lote**, respeita o teto de **200 itens ativos** e devolve
+   `accepted`, `skipped`, `invalid`, `rejected`, `capReached`.
+3. O plano não altera os objetos recebidos; a gravação é responsabilidade da
+   persistência.
+4. `DB.enqueueAnalyses` lê a fila e decide dedupe/teto **dentro de uma única
+   transação `readwrite`**. Duas abas não conseguem furar o teto.
+5. A ordem de execução é `priority` crescente (empate por `createdAt`).
+6. Não existe retry automático: um item em `error` só volta a `pending` por ação
+   explícita do usuário (M3/M4), o que também incrementa `attempts` e preserva
+   `lastError`.
+
+### 5.4. Checkpoint (`checkpoints`)
+
+Chave: `key` (a mesma da fila). Índice: `gameId`.
+
+| Campo | Tipo | Regra |
+|---|---|---|
+| `key` | string | `gameId@depth@build`; obrigatória |
+| `gameId` | string | partida alvo |
+| `depth` | number | profundidade da execução |
+| `engineBuild` | string \| null | build que produziu o checkpoint |
+| `positions` | array | avaliações já verificadas, no formato de `analysis.positions` |
+| `resumeAt` | number | índice da próxima meia-jogada a analisar |
+| `fenAtResume` | string \| null | FEN exata do ponto de retomada |
+| `movesLength` | number | total de meias-jogadas do PGN no momento |
+| `startFen` | string | posição inicial usada na execução |
+| `updatedAt` | number | carimbado por `DB.saveCheckpoint` |
+
+Regras:
+
+- Checkpoint é **progresso parcial**, não resultado: nunca é lido por
+  estatísticas, relatório ou gráfico.
+- Só se retoma quando `key`, `depth`, `engineBuild`, `movesLength` e
+  `fenAtResume` continuam consistentes com a partida e o build atuais (M4).
+- Ao concluir a análise, o checkpoint correspondente é apagado (M4).
+- `DB.deleteGame` remove os checkpoints da partida pelo índice `gameId`;
+  `DB.clearCheckpointsForGame` faz o mesmo sem apagar a partida.
+
+### 5.5. Compatibilidade, rollback e limpeza
+
+- **Upgrade aditivo:** `VERSION = 2` cria apenas `queue` e `checkpoints` se
+  faltarem. Nenhum store existente é recriado, limpo ou renomeado.
+- **Rollback seguro:** se o navegador já tem o banco em versão maior que a do
+  bundle, `DB.open()` recebe `VersionError`, reabre **sem versão declarada** e
+  usa os stores conhecidos. Nada é apagado nem rebaixado; um aviso é emitido no
+  console. Isso mantém o site utilizável após um rollback na Vercel.
+- **Exclusão em cascata:** `deleteGame` apaga `games`, `data`, `analysis`, `ai`,
+  `queue` e `checkpoints` da partida alvo; `clearAll` esvazia os sete stores.
+- **Backup:** `exportJson` continua exportando apenas `games`, `data`,
+  `analysis`, `ai` e `meta`. Fila e checkpoints não são restaurados por
+  `importJson`.
 
 ---
 

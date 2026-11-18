@@ -1,7 +1,9 @@
 # Plano da Fase 3 — Central de Análises
 
-**Data:** 17/11/2026  
-**Estado:** **escopo proposto — nada implementado**  
+**Data:** 17/11/2026 (atualizado em 18/11/2026)  
+**Estado:** **M1 concluída** — DB v2, `queue`/`checkpoints` e `js/queue.js`
+implementados e verificados; M2–M6 pendentes. Evidências em
+[`TESTES-FASE-3.md`](TESTES-FASE-3.md).  
 **Base:** Fase 2 aprovada (motor SF19, proveniência `gameId@depth@build`,
 Expected Score v3 por WDL) e §9 de
 [`ARQUITETURA-INTEGRACAO.md`](ARQUITETURA-INTEGRACAO.md)
@@ -367,8 +369,8 @@ Extrair a lógica pura para `js/queue.js` (reducer + validadores) e testar em
 
 | Etapa | Entrega | Critério de saída |
 |---|---|---|
-| **M1** | `DB` v2 + stores `queue`/`checkpoints` + API de fila | testes de storage e migração 1→2 sem perda |
-| **M2** | `js/queue.js` (reducer puro) + testes unitários | 100% das transições cobertas |
+| **M1** | `DB` v2 + stores `queue`/`checkpoints` + `js/queue.js` (regras puras) + testes | migração 1→2 sem perda, teto/dedupe e CRUD reais — **concluída** |
+| ~~**M2**~~ | Absorvida pela M1: `js/queue.js` e testes unitários | — |
 | **M3** | `Engine.analyzeGame` com `startIndex`/`seedPositions`/`onPosition` | retomada real no smoke, mesmo resultado do caminho sem retomada |
 | **M4** | Executor com lease/heartbeat + pausa/cancelar/retry | reload no meio retoma; duas abas coordenam |
 | **M5** | View "Análises" + entradas pela Biblioteca/Configurações | fluxo completo pela interface, sem modal |
@@ -389,14 +391,20 @@ Cada etapa tem commit próprio e não avança sem a anterior verificada.
 | Retomada gerar resultado diferente do caminho contínuo | comparar `winPctWhite`, `counts` e `acpl` nos testes de M3 |
 | Usuário fechar a aba durante gravação | transação atômica; pior caso perde ≤ 4 posições |
 
-Decisões abertas para aprovação antes de M1:
+Decisões aprovadas em 18/11/2026 (antes da M1):
 
-1. A fila substitui o modal por completo ou convive com ele por uma versão?
-   **Proposta:** substituir; Configurações passa a enfileirar.
-2. Retry automático em erro de IndexedDB (1 tentativa) ou só manual?
-   **Proposta:** manual, com mensagem acionável.
-3. Limite de itens por vez na fila? **Proposta:** sem limite de itens; um
-   Worker simultâneo.
+1. A fila **substitui** o modal; a view dedicada entra na M5, dentro de
+   `index.html` (`data-view="analyses"`), sem arquivo HTML separado.
+2. Retry **manual**, com mensagem acionável; nunca automático.
+3. Teto de **200 itens ativos** por vez (`Queue.MAX_ITEMS`). `done`/`canceled`
+   não ocupam vaga. Um Worker simultâneo.
+
+### 13.1. Decisão de rollback (implementada antes da M1)
+
+O patch de compatibilidade foi entregue e publicado como passo isolado
+(commit `b3ecc64`): se o banco local estiver em versão maior que a do bundle,
+`DB.open()` reabre **sem versão declarada**, sem apagar nem rebaixar nada.
+Evidência real em `docs/TESTES-FASE-3.md` §2.7.
 
 ---
 

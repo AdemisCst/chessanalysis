@@ -8,7 +8,9 @@
 
 const DB = (() => {
     const NAME = 'acervo64';
-    const VERSION = 1;
+    // v2 (Fase 3/M1): acrescenta `queue` e `checkpoints`. O upgrade é aditivo:
+    // nenhum store existente é recriado ou limpo.
+    const VERSION = 2;
     let dbPromise = null;
 
     function open() {
@@ -38,6 +40,19 @@ const DB = (() => {
                 }
                 if (!db.objectStoreNames.contains('meta')) {
                     db.createObjectStore('meta', { keyPath: 'key' });
+                }
+                // Fase 3: fila de análise e checkpoints ficam fora de
+                // `analysis` de propósito — análise parcial nunca entra nas
+                // estatísticas nem no gráfico.
+                if (!db.objectStoreNames.contains('queue')) {
+                    const queue = db.createObjectStore('queue', { keyPath: 'key' });
+                    queue.createIndex('state', 'state', { unique: false });
+                    queue.createIndex('priority', 'priority', { unique: false });
+                    queue.createIndex('gameId', 'gameId', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('checkpoints')) {
+                    const checkpoints = db.createObjectStore('checkpoints', { keyPath: 'key' });
+                    checkpoints.createIndex('gameId', 'gameId', { unique: false });
                 }
             }
 
@@ -126,10 +141,10 @@ const DB = (() => {
     async function deleteGame(id) {
         const db = await open();
         return new Promise((resolve, reject) => {
-            const tx = db.transaction(['games', 'data', 'analysis', 'ai'], 'readwrite');
+            const tx = db.transaction(['games', 'data', 'analysis', 'ai', 'queue', 'checkpoints'], 'readwrite');
             tx.objectStore('games').delete(id);
             tx.objectStore('data').delete(id);
-            ['analysis', 'ai'].forEach(name => {
+            ['analysis', 'ai', 'queue', 'checkpoints'].forEach(name => {
                 const index = tx.objectStore(name).index('gameId');
                 index.openKeyCursor(IDBKeyRange.only(id)).onsuccess = event => {
                     const cursor = event.target.result;
@@ -147,7 +162,7 @@ const DB = (() => {
     async function clearAll() {
         const db = await open();
         return new Promise((resolve, reject) => {
-            const names = ['games', 'data', 'analysis', 'ai', 'meta'];
+            const names = ['games', 'data', 'analysis', 'ai', 'meta', 'queue', 'checkpoints'];
             const tx = db.transaction(names, 'readwrite');
             names.forEach(name => tx.objectStore(name).clear());
             tx.oncomplete = () => resolve(true);
@@ -204,6 +219,149 @@ const DB = (() => {
         return record;
     }
 
+    /* ---------- fila de análise (Fase 3) ---------- */
+    /**
+     * A fila usa a mesma identidade da análise. Assim fila, checkpoint e
+     * resultado falam exatamente do mesmo alvo (`gameId@depth@build`).
+     */
+    function queueKey(gameId, depth, build) {
+        return analysisKey(gameId, depth, build);
+    }
+
+    /**
+     * Enfileira entradas `{gameId, depth, engineBuild, positionsTotal?}`.
+     * Dedupe e teto de itens ativos são decididos dentro da transação: duas
+     * abas não conseguem furar o limite. Itens terminais (done/canceled) não
+     * ocupam vaga.
+     */
+    async function enqueueAnalyses(entries) {
+        const planner = window.Queue;
+        if (!planner || typeof planner.plan !== 'function') {
+            throw new Error('Módulo de fila não carregado.');
+        }
+        const list = Array.isArray(entries) ? entries : [];
+        if (!list.length) {
+            return { added: 0, skipped: 0, invalid: 0, rejected: 0, capReached: false, addedKeys: [] };
+        }
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('queue', 'readwrite');
+            const store = tx.objectStore('queue');
+            const request = store.getAll();
+            let result = null;
+            request.onsuccess = () => {
+                const existing = request.result || [];
+                const active = existing.filter(item => planner.isActive(item));
+                const candidates = list
+                    .filter(entry => entry && entry.gameId)
+                    .map(entry => Object.assign({}, entry, {
+                        key: queueKey(entry.gameId, entry.depth, entry.engineBuild),
+                    }));
+                const plan = planner.plan(active, candidates, planner.MAX_ITEMS);
+                plan.accepted.forEach(item => store.put(item));
+                result = {
+                    added: plan.accepted.length,
+                    skipped: plan.skipped.length,
+                    invalid: plan.invalid.length,
+                    rejected: plan.rejected.length,
+                    capReached: plan.capReached,
+                    addedKeys: plan.accepted.map(item => item.key),
+                };
+            };
+            tx.oncomplete = () => resolve(result || {
+                added: 0, skipped: 0, invalid: 0, rejected: 0, capReached: false, addedKeys: [],
+            });
+            tx.onerror = () => reject(tx.error || new Error('Falha ao enfileirar análises.'));
+            tx.onabort = () => reject(tx.error || new Error('Fila cancelada.'));
+        });
+    }
+
+    /** Itens da fila em ordem de prioridade; `states` opcional filtra. */
+    async function getQueue(filter) {
+        const all = await getAll('queue');
+        const states = filter && Array.isArray(filter.states) ? filter.states : null;
+        return (all || [])
+            .filter(item => !states || states.indexOf(item.state) !== -1)
+            .sort((a, b) => (a.priority - b.priority) || (a.createdAt - b.createdAt));
+    }
+
+    async function getQueueItem(key) {
+        return get('queue', key);
+    }
+
+    /**
+     * Atualiza um item preservando `key` e carimbando `updatedAt`. Devolve o
+     * registro gravado, ou `null` se a chave não existir mais.
+     */
+    async function updateQueueItem(key, patch) {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('queue', 'readwrite');
+            const store = tx.objectStore('queue');
+            const request = store.get(key);
+            let updated = null;
+            request.onsuccess = () => {
+                const current = request.result;
+                if (!current) return;
+                updated = Object.assign({}, current, patch, { key: current.key, updatedAt: Date.now() });
+                store.put(updated);
+            };
+            tx.oncomplete = () => resolve(updated);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao atualizar a fila.'));
+        });
+    }
+
+    async function removeQueueItem(key) {
+        await del('queue', key);
+        return true;
+    }
+
+    /** Remove itens da fila. Sem filtro, esvazia tudo. */
+    async function clearQueue(filter) {
+        const states = filter && Array.isArray(filter.states) ? filter.states : null;
+        if (!states) return clear('queue');
+        const items = await getQueue({ states });
+        if (!items.length) return true;
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('queue', 'readwrite');
+            const store = tx.objectStore('queue');
+            items.forEach(item => store.delete(item.key));
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    /* ---------- checkpoints ---------- */
+    async function saveCheckpoint(record) {
+        if (!record || !record.key) throw new Error('Checkpoint sem chave.');
+        const next = Object.assign({}, record, { updatedAt: Date.now() });
+        await put('checkpoints', next);
+        return next;
+    }
+
+    async function getCheckpoint(key) {
+        return get('checkpoints', key);
+    }
+
+    async function deleteCheckpoint(key) {
+        await del('checkpoints', key);
+        return true;
+    }
+
+    async function clearCheckpointsForGame(gameId) {
+        const list = await getByIndex('checkpoints', 'gameId', gameId);
+        if (!list || !list.length) return true;
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('checkpoints', 'readwrite');
+            const store = tx.objectStore('checkpoints');
+            list.forEach(item => store.delete(item.key));
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
     async function getAI(gameId, kind) {
         return get('ai', `${gameId}:${kind}`);
     }
@@ -220,6 +378,8 @@ const DB = (() => {
     return {
         open, get, getAll, put, del, clear, count, bulkPut, getByIndex, deleteGame, clearAll,
         getAnalysis, getAnalyses, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
+        queueKey, enqueueAnalyses, getQueue, getQueueItem, updateQueueItem, removeQueueItem,
+        clearQueue, saveCheckpoint, getCheckpoint, deleteCheckpoint, clearCheckpointsForGame,
     };
 })();
 
