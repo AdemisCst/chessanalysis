@@ -18,9 +18,8 @@ const DB = (() => {
                 reject(new Error('Este navegador não suporta IndexedDB.'));
                 return;
             }
-            const request = indexedDB.open(NAME, VERSION);
-            request.onupgradeneeded = () => {
-                const db = request.result;
+
+            function upgrade(db) {
                 if (!db.objectStoreNames.contains('games')) {
                     const games = db.createObjectStore('games', { keyPath: 'id' });
                     ['dateISO', 'result', 'white', 'black', 'eco', 'event', 'year', 'favorite', 'maxElo', 'importedAt']
@@ -40,9 +39,31 @@ const DB = (() => {
                 if (!db.objectStoreNames.contains('meta')) {
                     db.createObjectStore('meta', { keyPath: 'key' });
                 }
-            };
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error || new Error('Falha ao abrir o banco local.'));
+            }
+
+            /**
+             * `allowFallback` protege o rollback: se o navegador já tem o banco
+             * em versão mais nova que a deste código, `open(NAME, VERSION)`
+             * falha com `VersionError`. Em vez de deixar o app inutilizável,
+             * reabrimos sem versão declarada e usamos os stores conhecidos.
+             * Nada é apagado nem rebaixado — só lemos o que já existe.
+             */
+            function attempt(version, allowFallback) {
+                const request = version ? indexedDB.open(NAME, version) : indexedDB.open(NAME);
+                request.onupgradeneeded = () => upgrade(request.result);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => {
+                    const error = request.error;
+                    if (allowFallback && error && error.name === 'VersionError') {
+                        console.warn('Banco local em versão mais nova; abrindo sem rebaixar.');
+                        attempt(null, false);
+                        return;
+                    }
+                    reject(error || new Error('Falha ao abrir o banco local.'));
+                };
+            }
+
+            attempt(VERSION, true);
         });
         return dbPromise;
     }
