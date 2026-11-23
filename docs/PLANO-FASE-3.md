@@ -1,8 +1,9 @@
 # Plano da Fase 3 — Central de Análises
 
-**Data:** 17/11/2026 (atualizado em 18/11/2026)  
-**Estado:** **M1 concluída** — DB v2, `queue`/`checkpoints` e `js/queue.js`
-implementados e verificados; M2–M6 pendentes. Evidências em
+**Data:** 17/11/2026 (atualizado em 23/11/2026)  
+**Estado:** **M1, M3 e M4 concluídas** — DB v2 e regras da fila, retomada no
+motor e executor com lease/heartbeat/BroadcastChannel implementados e
+verificados; M5–M6 pendentes (UI e revisão final). Evidências em
 [`TESTES-FASE-3.md`](TESTES-FASE-3.md).  
 **Base:** Fase 2 aprovada (motor SF19, proveniência `gameId@depth@build`,
 Expected Score v3 por WDL) e §9 de
@@ -298,6 +299,9 @@ Item no rail (`data-view="analyses"`), view própria em `index.html`, render em
   texto "Em execução em outra aba".
 - Ao fechar a aba dona (`beforeunload`/`pagehide`), grava checkpoint e libera o
   lease; se o fechamento for abrupto, o lease expira em 20 s.
+- A pausa é **global** (`meta.analysisQueuePaused`): a aba observadora pode até
+  assumir o lease depois da pausa, mas devolve sem retomar; só um `start()`
+  explícito limpa a pausa.
 - Duas abas nunca escrevem no mesmo item: a escrita exige `leaseOwner === tabId`
   na transação (releitura antes de gravar).
 
@@ -354,14 +358,15 @@ Extrair a lógica pura para `js/queue.js` (reducer + validadores) e testar em
 
 ### 11.3. Critérios de aceite
 
-- [ ] Nenhuma análise parcial em `analysis` ou nas estatísticas.
-- [ ] Reload/kill da aba em qualquer ponto retoma sem perder mais que
-      `CHECKPOINT_EVERY` posições.
-- [ ] Fila sobrevive a fechar e reabrir o navegador.
-- [ ] Duas abas nunca executam o mesmo item.
-- [ ] Nenhum caminho de erro apaga análise existente.
-- [ ] Suíte total verde e `check-syntax` limpo.
-- [ ] Evidências reais registradas em `docs/TESTES-FASE-3.md`, não simuladas.
+- [x] Nenhuma análise parcial em `analysis` ou nas estatísticas.
+- [x] Kill da aba em qualquer ponto retoma sem perder mais que
+      `CHECKPOINT_EVERY` posições (queda real em `TESTES-FASE-3.md` §4.2).
+- [ ] Fila sobrevive a fechar e reabrir o navegador (retomada após crash de
+      renderer comprovada; reload completo do navegador fica para a M6).
+- [x] Duas abas nunca executam o mesmo item.
+- [x] Nenhum caminho de erro apaga análise existente.
+- [x] Suíte total verde e `check-syntax` limpo.
+- [x] Evidências reais registradas em `docs/TESTES-FASE-3.md`, não simuladas.
 
 ---
 
@@ -371,8 +376,8 @@ Extrair a lógica pura para `js/queue.js` (reducer + validadores) e testar em
 |---|---|---|
 | **M1** | `DB` v2 + stores `queue`/`checkpoints` + `js/queue.js` (regras puras) + testes | migração 1→2 sem perda, teto/dedupe e CRUD reais — **concluída** |
 | ~~**M2**~~ | Absorvida pela M1: `js/queue.js` e testes unitários | — |
-| **M3** | `Engine.analyzeGame` com `startIndex`/`seedPositions`/`onPosition` | retomada real no smoke, mesmo resultado do caminho sem retomada |
-| **M4** | Executor com lease/heartbeat + pausa/cancelar/retry | reload no meio retoma; duas abas coordenam |
+| **M3** | `Engine.analyzeGame` com `startIndex`/`seedPositions`/`onPosition` | retomada real no smoke, mesmo resultado do caminho sem retomada — **concluída** (evidência §3 de `TESTES-FASE-3.md`) |
+| **M4** | Executor com lease/heartbeat + pausa/cancelar/retry | reload no meio retoma; duas abas coordenam — **concluída** (evidência §4) |
 | **M5** | View "Análises" + entradas pela Biblioteca/Configurações | fluxo completo pela interface, sem modal |
 | **M6** | Evidências, documentação e revisão | `TESTES-FASE-3.md` §1 completo |
 

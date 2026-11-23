@@ -362,6 +362,311 @@ const DB = (() => {
         });
     }
 
+    /* ---------- coordenação entre abas (Fase 3/M4) ---------- */
+    const LEASE_META_KEY = 'analysisQueueLease';
+
+    function leaseValue(record) {
+        return record && record.value ? record.value : null;
+    }
+
+    async function getLease() {
+        return leaseValue(await get('meta', LEASE_META_KEY));
+    }
+
+    /**
+     * Reivindica o lease da fila. A decisão é tomada dentro da transação:
+     * duas abas não conseguem se declarar donas ao mesmo tempo. Ao adquirir,
+     * itens `running` órfãos (lease expirado ou inexistente) viram
+     * `interrupted`, preservando o checkpoint.
+     */
+    async function claimLease(tabId, itemKey, now, ttl) {
+        const db = await open();
+        const stamp = Number(now) || Date.now();
+        const limit = Number(ttl) || 20000;
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['meta', 'queue'], 'readwrite');
+            const meta = tx.objectStore('meta');
+            const queue = tx.objectStore('queue');
+            let result = null;
+            const leaseRequest = meta.get(LEASE_META_KEY);
+            leaseRequest.onsuccess = () => {
+                const current = leaseValue(leaseRequest.result);
+                const active = current && current.tabId !== tabId &&
+                    (stamp - Number(current.heartbeatAt || 0)) < limit;
+                if (active) {
+                    result = { ok: false, reason: 'lease-active', lease: current };
+                    return;
+                }
+                const allRequest = queue.getAll();
+                allRequest.onsuccess = () => {
+                    const items = allRequest.result || [];
+                    items.forEach(item => {
+                        if (item.state !== 'running') return;
+                        queue.put(Object.assign({}, item, {
+                            state: 'interrupted',
+                            lastError: 'interrompida',
+                            leaseOwner: null,
+                            heartbeatAt: null,
+                            updatedAt: stamp,
+                        }));
+                    });
+                    const next = { tabId, itemKey: itemKey || null, heartbeatAt: stamp };
+                    meta.put({ key: LEASE_META_KEY, value: next, createdAt: Date.now() });
+                    result = { ok: true, lease: next, interrupted: items.filter(item => item.state === 'running').length };
+                };
+            };
+            tx.oncomplete = () => resolve(result || { ok: false, reason: 'indefinido' });
+            tx.onerror = () => reject(tx.error || new Error('Falha ao reivindicar a fila.'));
+            tx.onabort = () => reject(tx.error || new Error('Reivindicação da fila cancelada.'));
+        });
+    }
+
+    /** Renova o heartbeat do lease e do item. Se o lease for de outra aba, não grava. */
+    async function renewLease(tabId, itemKey, now) {
+        const db = await open();
+        const stamp = Number(now) || Date.now();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['meta', 'queue'], 'readwrite');
+            const meta = tx.objectStore('meta');
+            const queue = tx.objectStore('queue');
+            let result = { ok: false, reason: 'lease-lost' };
+            const leaseRequest = meta.get(LEASE_META_KEY);
+            leaseRequest.onsuccess = () => {
+                const record = leaseRequest.result;
+                const current = leaseValue(record);
+                if (!current || current.tabId !== tabId) return;
+                meta.put({
+                    key: LEASE_META_KEY,
+                    value: { tabId, itemKey: itemKey || current.itemKey || null, heartbeatAt: stamp },
+                    createdAt: record.createdAt || Date.now(),
+                });
+                result = { ok: true };
+                if (!itemKey) return;
+                const itemRequest = queue.get(itemKey);
+                itemRequest.onsuccess = () => {
+                    const item = itemRequest.result;
+                    if (!item || item.state !== 'running' || item.leaseOwner !== tabId) {
+                        result = { ok: false, reason: 'lease-lost' };
+                        return;
+                    }
+                    queue.put(Object.assign({}, item, { heartbeatAt: stamp, updatedAt: stamp }));
+                };
+            };
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao renovar o lease.'));
+        });
+    }
+
+    async function releaseLease(tabId) {
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction('meta', 'readwrite');
+            const meta = tx.objectStore('meta');
+            const request = meta.get(LEASE_META_KEY);
+            request.onsuccess = () => {
+                const current = leaseValue(request.result);
+                if (current && current.tabId === tabId) meta.delete(LEASE_META_KEY);
+            };
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao liberar o lease.'));
+        });
+    }
+
+    /**
+     * Marca o item como `running` e registra o dono. A verificação do lease e
+     * do estado acontece na mesma transação.
+     */
+    async function startQueueItem(key, tabId, now) {
+        const db = await open();
+        const stamp = Number(now) || Date.now();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['meta', 'queue'], 'readwrite');
+            const meta = tx.objectStore('meta');
+            const queue = tx.objectStore('queue');
+            let result = { ok: false, reason: 'lease-lost' };
+            const leaseRequest = meta.get(LEASE_META_KEY);
+            leaseRequest.onsuccess = () => {
+                const lease = leaseValue(leaseRequest.result);
+                if (!lease || lease.tabId !== tabId) return;
+                const itemRequest = queue.get(key);
+                itemRequest.onsuccess = () => {
+                    const item = itemRequest.result;
+                    if (!item) { result = { ok: false, reason: 'missing' }; return; }
+                    if (['pending', 'interrupted', 'paused'].indexOf(item.state) === -1) {
+                        result = { ok: false, reason: 'state' };
+                        return;
+                    }
+                    const updated = Object.assign({}, item, {
+                        state: 'running',
+                        leaseOwner: tabId,
+                        heartbeatAt: stamp,
+                        startedAt: item.startedAt || stamp,
+                        updatedAt: stamp,
+                        attempts: Number(item.attempts || 0) + 1,
+                        lastError: null,
+                    });
+                    queue.put(updated);
+                    meta.put({
+                        key: LEASE_META_KEY,
+                        value: { tabId, itemKey: key, heartbeatAt: stamp },
+                        createdAt: leaseRequest.result.createdAt || Date.now(),
+                    });
+                    result = { ok: true, item: updated };
+                };
+            };
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao iniciar o item da fila.'));
+            tx.onabort = () => reject(tx.error || new Error('Início do item cancelado.'));
+        });
+    }
+
+    /**
+     * Grava checkpoint + progresso na mesma transação, exigindo que o item
+     * ainda pertença à aba. Se o lease foi perdido, nada é escrito.
+     */
+    async function saveQueueProgress(key, tabId, checkpoint, patch) {
+        const db = await open();
+        const stamp = Date.now();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['queue', 'checkpoints', 'meta'], 'readwrite');
+            const queue = tx.objectStore('queue');
+            const checkpoints = tx.objectStore('checkpoints');
+            const meta = tx.objectStore('meta');
+            let result = { ok: false, reason: 'lease-lost' };
+            const leaseRequest = meta.get(LEASE_META_KEY);
+            leaseRequest.onsuccess = () => {
+                const lease = leaseValue(leaseRequest.result);
+                if (!lease || lease.tabId !== tabId) return;
+                const itemRequest = queue.get(key);
+                itemRequest.onsuccess = () => {
+                    const item = itemRequest.result;
+                    if (!item || item.state !== 'running' || item.leaseOwner !== tabId) return;
+                    if (checkpoint) {
+                        checkpoints.put(Object.assign({}, checkpoint, {
+                            key: checkpoint.key || key,
+                            updatedAt: stamp,
+                        }));
+                    }
+                    const fields = Object.assign({}, patch || {});
+                    delete fields.key;
+                    delete fields.leaseOwner;
+                    delete fields.state;
+                    queue.put(Object.assign({}, item, fields, {
+                        key: item.key,
+                        leaseOwner: tabId,
+                        heartbeatAt: stamp,
+                        updatedAt: stamp,
+                    }));
+                    meta.put({ key: LEASE_META_KEY, value: { tabId, itemKey: key, heartbeatAt: stamp }, createdAt: stamp });
+                    result = { ok: true };
+                };
+            };
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao salvar o progresso da fila.'));
+            tx.onabort = () => reject(tx.error || new Error('Progresso da fila cancelado.'));
+        });
+    }
+
+    /**
+     * Encerra o item sem apagar a análise existente. `state` aceita
+     * `paused`, `interrupted`, `error` ou `canceled`; o checkpoint é mantido,
+     * exceto em cancelamento. O lease da aba continua válido para o próximo
+     * item (o chamador decide liberá-lo).
+     */
+    async function settleQueueItem(key, tabId, state, options) {
+        const db = await open();
+        const opts = options || {};
+        const stamp = Date.now();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['queue', 'checkpoints', 'meta'], 'readwrite');
+            const queue = tx.objectStore('queue');
+            const checkpoints = tx.objectStore('checkpoints');
+            const meta = tx.objectStore('meta');
+            let result = { ok: false, reason: 'lease-lost' };
+            const itemRequest = queue.get(key);
+            itemRequest.onsuccess = () => {
+                const item = itemRequest.result;
+                if (!item || item.leaseOwner !== tabId) return;
+                if (opts.checkpoint) {
+                    checkpoints.put(Object.assign({}, opts.checkpoint, {
+                        key: opts.checkpoint.key || key,
+                        updatedAt: stamp,
+                    }));
+                }
+                if (state === 'canceled' || opts.deleteCheckpoint) checkpoints.delete(key);
+                queue.put(Object.assign({}, item, {
+                    state,
+                    lastError: opts.message || (state === 'interrupted' ? 'interrompida' : null),
+                    leaseOwner: null,
+                    heartbeatAt: null,
+                    updatedAt: stamp,
+                    finishedAt: state === 'canceled' ? stamp : item.finishedAt,
+                }));
+                // Só atualiza o lease se ele ainda for desta aba. Se a aba já
+                // liberou o lease (pagehide/stop), não o ressuscita.
+                const leaseRequest = meta.get(LEASE_META_KEY);
+                leaseRequest.onsuccess = () => {
+                    const lease = leaseValue(leaseRequest.result);
+                    if (lease && lease.tabId === tabId) {
+                        meta.put({ key: LEASE_META_KEY, value: { tabId, itemKey: null, heartbeatAt: stamp }, createdAt: stamp });
+                    }
+                };
+                result = { ok: true };
+            };
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao encerrar o item da fila.'));
+            tx.onabort = () => reject(tx.error || new Error('Encerramento do item cancelado.'));
+        });
+    }
+
+    /**
+     * Conclusão atômica: análise completa + metadados da partida + `done` +
+     * remoção do checkpoint + liberação do item. Só grava se a aba ainda for
+     * dona do item; caso contrário, devolve `lease-lost` sem escrever nada.
+     */
+    async function finishQueueItem(key, tabId, analysis, game) {
+        const db = await open();
+        const stamp = Date.now();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['analysis', 'games', 'queue', 'checkpoints', 'meta'], 'readwrite');
+            const analyses = tx.objectStore('analysis');
+            const games = tx.objectStore('games');
+            const queue = tx.objectStore('queue');
+            const checkpoints = tx.objectStore('checkpoints');
+            const meta = tx.objectStore('meta');
+            let result = { ok: false, reason: 'lease-lost' };
+            const itemRequest = queue.get(key);
+            itemRequest.onsuccess = () => {
+                const item = itemRequest.result;
+                if (!item || item.state !== 'running' || item.leaseOwner !== tabId) return;
+                const record = Object.assign({}, analysis, { key });
+                analyses.put(record);
+                if (game && game.id) games.put(game);
+                queue.put(Object.assign({}, item, {
+                    state: 'done',
+                    positionsDone: record.positions ? record.positions.length : item.positionsDone,
+                    finishedAt: stamp,
+                    updatedAt: stamp,
+                    leaseOwner: null,
+                    heartbeatAt: null,
+                    lastError: null,
+                }));
+                checkpoints.delete(key);
+                const leaseRequest = meta.get(LEASE_META_KEY);
+                leaseRequest.onsuccess = () => {
+                    const lease = leaseValue(leaseRequest.result);
+                    if (lease && lease.tabId === tabId) {
+                        meta.put({ key: LEASE_META_KEY, value: { tabId, itemKey: null, heartbeatAt: stamp }, createdAt: stamp });
+                    }
+                };
+                result = { ok: true, analysis: record };
+            };
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao concluir o item da fila.'));
+            tx.onabort = () => reject(tx.error || new Error('Conclusão do item cancelada.'));
+        });
+    }
+
     async function getAI(gameId, kind) {
         return get('ai', `${gameId}:${kind}`);
     }
@@ -380,6 +685,8 @@ const DB = (() => {
         getAnalysis, getAnalyses, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
         queueKey, enqueueAnalyses, getQueue, getQueueItem, updateQueueItem, removeQueueItem,
         clearQueue, saveCheckpoint, getCheckpoint, deleteCheckpoint, clearCheckpointsForGame,
+        getLease, claimLease, renewLease, releaseLease, startQueueItem, saveQueueProgress,
+        settleQueueItem, finishQueueItem,
     };
 })();
 

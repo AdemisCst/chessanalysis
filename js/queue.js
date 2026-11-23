@@ -19,8 +19,14 @@ const Queue = (() => {
     /** Teto de itens ativos. Done/canceled não ocupam vaga. */
     const MAX_ITEMS = 200;
 
+    /* Coordenação entre abas (M4). O lease vale 20 s e é renovado a cada 5 s. */
+    const LEASE_MS = 20000;
+    const HEARTBEAT_MS = 5000;
+    const CHECKPOINT_EVERY = 4;
+
     const ACTIVE_STATES = ['pending', 'running', 'paused', 'interrupted', 'error'];
     const TERMINAL_STATES = ['done', 'canceled'];
+    const RUNNABLE_STATES = ['pending', 'interrupted', 'paused'];
 
     function isActive(item) {
         return !!item && ACTIVE_STATES.indexOf(item.state) !== -1;
@@ -99,14 +105,80 @@ const Queue = (() => {
         };
     }
 
+    /** Lease válido quando o último heartbeat tem menos de 20 s. */
+    function isLeaseActive(lease, now) {
+        if (!lease || !lease.tabId) return false;
+        const beat = Number(lease.heartbeatAt);
+        if (!Number.isFinite(beat)) return false;
+        return (Number(now) - beat) < LEASE_MS;
+    }
+
+    /**
+     * Próximo item executável: `pending`, `interrupted` ou `paused`, em ordem
+     * de prioridade. `done`/`canceled` ficam de fora e `error` só volta por
+     * retry manual (o chamador muda o estado antes).
+     */
+    function nextItem(items, now) {
+        const stamp = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+        return (Array.isArray(items) ? items : [])
+            .filter(item => RUNNABLE_STATES.indexOf(item.state) !== -1)
+            .filter(item => {
+                if (!item.leaseOwner) return true;
+                return !isLeaseActive({ tabId: item.leaseOwner, heartbeatAt: item.heartbeatAt }, stamp);
+            })
+            .sort((a, b) => (a.priority - b.priority) || (a.createdAt - b.createdAt))[0] || null;
+    }
+
+    /**
+     * Valida um checkpoint contra o alvo atual. Devolve `{ok, resumeAt,
+     * positions}` ou `{ok:false, empty, reason}`. Checkpoint ausente não é
+     * erro: significa começar do zero (`empty: true`).
+     *
+     * `expected.fenAtResume` é a FEN da posição `resumeAt` (ou `null` quando o
+     * checkpoint já cobre a partida inteira).
+     */
+    function validateCheckpoint(checkpoint, expected) {
+        const exp = expected || {};
+        if (!checkpoint || !checkpoint.key) {
+            return { ok: false, empty: true, reason: 'checkpoint ausente' };
+        }
+        const fail = reason => ({ ok: false, empty: false, reason });
+        if (checkpoint.key !== exp.key) return fail('chave do checkpoint');
+        if (checkpoint.gameId !== exp.gameId) return fail('partida do checkpoint');
+        if (Number(checkpoint.depth) !== Number(exp.depth)) return fail('profundidade do checkpoint');
+        if ((checkpoint.engineBuild || null) !== (exp.engineBuild || null)) return fail('build do checkpoint');
+        if ((checkpoint.startFen || '') !== (exp.startFen || '')) return fail('posição inicial');
+        if (Number(checkpoint.movesLength) !== Number(exp.movesLength)) return fail('tamanho da partida');
+
+        const total = Number(exp.total);
+        const resumeAt = Number(checkpoint.resumeAt);
+        if (!Number.isInteger(resumeAt) || resumeAt < 0 || resumeAt > total) {
+            return fail('ponto de retomada');
+        }
+        const positions = Array.isArray(checkpoint.positions) ? checkpoint.positions : [];
+        if (positions.length < resumeAt) return fail('posições insuficientes');
+        if (positions.length > total) return fail('posições excedentes');
+        if (exp.fenAtResume !== undefined && (checkpoint.fenAtResume || null) !== (exp.fenAtResume || null)) {
+            return fail('FEN de retomada');
+        }
+        return { ok: true, empty: false, resumeAt, positions: positions.slice(0, resumeAt) };
+    }
+
     return {
         MAX_ITEMS,
+        LEASE_MS,
+        HEARTBEAT_MS,
+        CHECKPOINT_EVERY,
         ACTIVE_STATES,
         TERMINAL_STATES,
+        RUNNABLE_STATES,
         isActive,
         isTerminal,
+        isLeaseActive,
         normalize,
         plan,
+        nextItem,
+        validateCheckpoint,
     };
 })();
 

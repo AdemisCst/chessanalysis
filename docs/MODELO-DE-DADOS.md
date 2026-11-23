@@ -1,13 +1,14 @@
 # Modelo de dados — Chess-Analysis
 
-**Versão:** 1.3 — Fase 3/M1 (fila e checkpoints)  
+**Versão:** 1.4 — Fase 3/M3–M4 (retomada e executor)  
 **Atualizado em:** 18/11/2026  
 **Estado:** contratos documentados; persistência de `PlayerIdentity` fica para a
 Fase 5. O `wdl`, a `version: 3`, a chave `gameId@depth@build` e a migração de
 proveniência estão **implementados** (Tarefa 2). As **7 categorias atuais estão
 aprovadas**; as 3 categorias restantes (Grande Lance, Livro, Bom) estão
 **deferidas** para a Fase 2.5/5 — ver §3.2. O banco está na **versão 2** desde a
-M1 da Fase 3, com os stores `queue` e `checkpoints` — ver §5.
+M1 da Fase 3, com os stores `queue` e `checkpoints` — ver §5. A retomada no
+motor (M3) e o executor com lease (M4) estão **implementados**; a UI é a M5.
 
 Este documento descreve as estruturas **realmente usadas** hoje e os contratos
 previstos. Onde a estrutura ainda não existe no código, o texto indica isso.
@@ -527,6 +528,82 @@ Regras:
 - **Backup:** `exportJson` continua exportando apenas `games`, `data`,
   `analysis`, `ai` e `meta`. Fila e checkpoints não são restaurados por
   `importJson`.
+
+### 5.6. Lease de aba e BroadcastChannel (M4)
+
+O lease vive em `meta`, chave `analysisQueueLease`:
+
+```js
+{ tabId: string, itemKey: string | null, heartbeatAt: number }
+```
+
+| Constante | Valor | Onde |
+|---|---:|---|
+| `Queue.LEASE_MS` | 20000 ms | validade do lease |
+| `Queue.HEARTBEAT_MS` | 5000 ms | renovação enquanto executa |
+| `Queue.CHECKPOINT_EVERY` | 4 | posições por checkpoint |
+
+Regras:
+
+1. **Aquisição dentro da transação.** `DB.claimLease(tabId, itemKey, now, ttl)`
+   lê `meta` e decide em `readwrite`: se existe lease de outra aba com
+   `now - heartbeatAt < 20000`, a resposta é `lease-active`; caso contrário, a
+   aba assume e grava o novo lease.
+2. **Itens órfãos viram `interrupted`.** Na mesma transação de aquisição, todo
+   item em `running` (lease expirado ou ausente) passa a `interrupted`, com
+   `leaseOwner: null`, preservando o checkpoint.
+3. **Toda escrita exige o dono.** `DB.saveQueueProgress`, `DB.settleQueueItem` e
+   `DB.finishQueueItem` releem o item e só gravam quando
+   `state === 'running'` **e** `leaseOwner === tabId` (o progresso também exige
+   o lease correspondente em `meta`). Fora disso, devolvem `lease-lost` sem
+   escrever.
+4. **Conclusão atômica.** `DB.finishQueueItem` grava, na mesma transação sobre
+   `['analysis','games','queue','checkpoints','meta']`: a análise completa, os
+   metadados da partida, o estado `done`, a remoção do checkpoint e a liberação
+   do item. Não existe análise parcial em `analysis`.
+5. **Heartbeat e watchdog.** A aba dona renova o lease a cada 5 s
+   (`DB.renewLease`); se a renovação falhar, aborta o item e vira observadora.
+   O observador tenta assumir a cada 2 s (`WATCHDOG_MS`, em
+   `js/queue-runner.js`), além de reagir aos eventos do canal.
+6. **BroadcastChannel é aviso, não autoridade.**
+   `BroadcastChannel('acervo64-queue')` publica `lease-taken`, `lease-lost`,
+   `item-start`, `item-progress`, `item-done`, `item-error`, `queue-idle`,
+   `queue-paused`, `queue-interrupted` e `checkpoint-reset`; sem suporte ao
+   canal, o fallback é a chave `acervo64-queue-event` em `localStorage`. O canal
+   apenas acorda a outra aba — quem decide se pode escrever é o lease no
+   IndexedDB.
+7. **Sem `pagehide` confiável**, o lease expira em até 20 s; com `pagehide`, a
+   aba tenta gravar o checkpoint e liberar o lease imediatamente.
+8. **Pausa é global.** `QueueRunner.pause()` grava
+   `meta.analysisQueuePaused` antes de abortar o item. Uma aba observadora que
+   assume o lease enquanto a flag está ativa devolve o lease e fica `idle`; só
+   `QueueRunner.start()` explícito limpa a flag. Sem isso, a observadora
+   retomaria sozinha o item que o usuário acabou de pausar.
+
+### 5.7. Retomada no motor (M3)
+
+`Engine.analyzeGame(game, data, options)` aceita três opções novas, sem alterar
+o cálculo v3/WDL:
+
+| Opção | Contrato |
+|---|---|
+| `startIndex` | inteiro entre `0` e `moves.length + 1`; primeira posição ainda não avaliada. Fora disso, `RangeError` **antes** de iniciar o Worker |
+| `seedPositions` | array com exatamente `startIndex` posições já verificadas; incompleto → `RangeError` |
+| `onPosition` | `async ({ index, position, done, total })`; o motor **aguarda** antes de avaliar a próxima posição |
+
+O resultado continua completo: `positions` é montado com o prefixo semeado mais
+as posições novas e segue para `buildAnalysis` como antes. O executor grava o
+checkpoint dentro de `onPosition`, a cada 4 posições.
+
+Validação do checkpoint antes de retomar (`Queue.validateCheckpoint`):
+
+- Precisa bater `key`, `gameId`, `depth`, `engineBuild`, `startFen`,
+  `movesLength` e `fenAtResume`.
+- `resumeAt` precisa ser inteiro em `[0, total]`.
+- `positions.length` precisa ser igual ou maior que `resumeAt` e nunca maior que
+  `total`.
+- Checkpoint ausente (`empty: true`) significa começar do zero; qualquer
+  divergência descarta o checkpoint e reinicia a partida, **sem** erro fatal.
 
 ---
 
