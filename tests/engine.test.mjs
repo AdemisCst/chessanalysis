@@ -130,3 +130,29 @@ test('o lance de mate Rd8# não é penalizado e a análise fecha em 100%', () =>
     assert.equal(analysis.summary.blundersW, 0);
     assert.equal(analysis.keyMoments.length, 0);
 });
+
+/* ---------- retomada (M3): validação antes de tocar no Worker ---------- */
+
+test('analyzeGame recusa startIndex fora da partida antes de iniciar o motor', async () => {
+    const data = { startFen: 'start', moves: [{ fen: 'f1' }, { fen: 'f2' }] };
+    await assert.rejects(
+        () => Engine.analyzeGame({ id: 'g' }, data, { depth: 12, startIndex: 5 }),
+        error => error.name === 'RangeError'
+    );
+    await assert.rejects(
+        () => Engine.analyzeGame({ id: 'g' }, data, { depth: 12, startIndex: -1 }),
+        error => error.name === 'RangeError'
+    );
+    await assert.rejects(
+        () => Engine.analyzeGame({ id: 'g' }, data, { depth: 12, startIndex: 1.5 }),
+        error => error.name === 'RangeError'
+    );
+});
+
+test('analyzeGame recusa seedPositions que não cobrem o startIndex', async () => {
+    const data = { startFen: 'start', moves: [{ fen: 'f1' }, { fen: 'f2' }] };
+    await assert.rejects(
+        () => Engine.analyzeGame({ id: 'g' }, data, { depth: 12, startIndex: 2, seedPositions: [{}] }),
+        error => error.name === 'RangeError'
+    );
+});

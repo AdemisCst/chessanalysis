@@ -788,16 +788,38 @@ const Engine = (() => {
     async function analyzeGame(game, data, options) {
         const opts = options || {};
         const depth = Number(opts.depth) || 12;
-        await init();
         const moves = data.moves || [];
-        const positions = [];
         const total = moves.length + 1;
 
-        for (let index = 0; index < total; index++) {
+        // Retomada (M3): `startIndex` é a primeira posição ainda não avaliada e
+        // `seedPositions` são as posições já verificadas (prefixo 0..startIndex-1).
+        // O resultado continua completo: o motor só evita refazer o prefixo.
+        const startIndex = opts.startIndex === undefined || opts.startIndex === null
+            ? 0
+            : Number(opts.startIndex);
+        if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex > total) {
+            throw new RangeError('startIndex fora do intervalo da partida.');
+        }
+        const seeds = Array.isArray(opts.seedPositions)
+            ? opts.seedPositions.slice(0, startIndex)
+            : [];
+        if (seeds.length !== startIndex) {
+            throw new RangeError('seedPositions não cobrem o startIndex informado.');
+        }
+
+        await init();
+        const positions = seeds.slice();
+
+        for (let index = startIndex; index < total; index++) {
             if (opts.signal && opts.signal.aborted) throw new DOMException('Análise cancelada.', 'AbortError');
             const fen = index === 0 ? data.startFen : moves[index - 1].fen;
             const result = await evaluate(fen, depth, opts.signal);
-            positions.push(result);
+            positions[index] = result;
+            // `onPosition` é aguardado de propósito: o chamador grava o
+            // checkpoint antes de o motor avançar para a próxima posição.
+            if (opts.onPosition) {
+                await opts.onPosition({ index, position: result, done: index + 1, total });
+            }
             if (opts.onProgress) opts.onProgress({ done: index + 1, total, index });
             await new Promise(resolve => setTimeout(resolve, 0));
         }
