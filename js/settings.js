@@ -83,113 +83,18 @@ async function restoreBackup(file) {
 
 /* ===================== ANÁLISE EM LOTE ===================== */
 /**
- * Analisa em lote. Sem argumento, percorre todo o acervo; com uma lista de
- * partidas (seleção múltipla), analisa apenas aquelas que ainda não atingiram
- * a profundidade configurada.
+ * Análise em lote agora passa pela fila (M5). A Central de Análises executa,
+ * pausa e retoma; o `QueueRunner` só começa por chamada explícita da UI.
  */
 async function analyzeAll(onlyGames) {
-    if (!Engine.supported()) {
-        toast('A análise em lote precisa que você abra o projeto com iniciar.bat.', 'warning');
-        return;
+    if (typeof QueueUI === 'undefined') {
+        toast('A Central de Análises não foi carregada.', 'error');
+        return null;
     }
-    if (!State.games.length) {
-        toast('Não há partidas para analisar.', 'warning');
-        return;
-    }
-    if (State.analysisRun) {
-        toast('Já existe uma análise em andamento.', 'info');
-        return;
-    }
-
-    const depth = Settings.get().depth;
-    const scope = Array.isArray(onlyGames) && onlyGames.length ? onlyGames : State.games;
-    // Análise de outro build não conta como "já analisada": a profundidade pode
-    // ser a mesma, mas o motor e a metodologia mudaram.
-    const pending = scope.filter(game => {
-        if (!game.analyzedDepth || game.analyzedDepth < depth) return true;
-        return (game.analyzedBuild || '') !== Engine.BUILD_ID;
+    return QueueUI.enqueueGames(Array.isArray(onlyGames) ? onlyGames : null, {
+        start: true,
+        goToView: true,
     });
-    if (!pending.length) {
-        toast(`Todas as partidas já foram analisadas na profundidade ${depth}.`, 'success');
-        return;
-    }
-
-    const controller = new AbortController();
-    State.analysisRun = controller;
-    let finished = false;
-
-    openModal({
-        title: 'Analisando partidas',
-        body: `<p id="bulkStatus">Preparando Stockfish…</p>
-               <div class="modal-progress"><span id="bulkFill"></span></div>
-               <p class="muted small" id="bulkCount">${pending.length} partida(s) na fila · profundidade ${depth}</p>`,
-        footer: '<button class="btn btn-ghost" data-act="cancel">Cancelar</button>',
-        onClose: () => {
-            if (!finished) controller.abort();
-        },
-    });
-    $('modalFooter').querySelector('[data-act="cancel"]').addEventListener('click', () => {
-        controller.abort();
-        Engine.stop();
-    });
-
-    let done = 0;
-    let errors = 0;
-
-    try {
-        for (const game of pending) {
-            if (controller.signal.aborted) break;
-            const data = await DB.get('data', game.id);
-            if (!data) { errors++; continue; }
-            const status = $('bulkStatus');
-            if (status) status.textContent = `${done + 1}/${pending.length} · ${game.white} × ${game.black}`;
-
-            try {
-                const result = await Engine.analyzeGame(game, data, {
-                    depth,
-                    signal: controller.signal,
-                    onProgress: ({ done: positionDone, total }) => {
-                        const fill = $('bulkFill');
-                        if (fill) fill.style.width = Math.round(((done + positionDone / total) / pending.length) * 100) + '%';
-                    },
-                });
-                await DB.saveAnalysis(result);
-                game.analysisSummary = result.summary;
-                game.analyzedDepth = Math.max(game.analyzedDepth || 0, depth);
-                game.analyzedBuild = result.engineBuild;
-                if (window.Tags) Tags.apply(game, result, data.moves);
-                await DB.put('games', game);
-                done++;
-            } catch (error) {
-                if (controller.signal.aborted) break;
-                errors++;
-                console.warn('Falha ao analisar', game.id, error);
-            }
-            const count = $('bulkCount');
-            if (count) count.textContent = `${done}/${pending.length} concluída(s)${errors ? ' · ' + errors + ' falha(s)' : ''}`;
-        }
-    } finally {
-        finished = true;
-        State.analysisRun = null;
-        closeModal();
-        renderLibrary();
-        if ($('view-stats').classList.contains('active')) renderStatsView();
-        if (State.current) {
-            State.analysis = await DB.getAnalysis(State.current.id);
-            renderGameHeader();
-            renderAnalysisTab();
-            renderMoveList();
-            renderPosition();
-        }
-    }
-
-    if (controller.signal.aborted) {
-        toast('Análise em lote cancelada.', 'info');
-    } else if (errors) {
-        toast(`Análise concluída com ${errors} falha(s).`, 'warning');
-    } else {
-        toast(`Análise concluída em ${done} partida(s).`, 'success');
-    }
 }
 
 /* ===================== LIMPEZA ===================== */

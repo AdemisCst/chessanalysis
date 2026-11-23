@@ -59,6 +59,10 @@
         <button class="rail-btn active" data-view="library" title="Biblioteca" aria-current="page">
             <span class="rail-icon">📚</span><span>Biblioteca</span>
         </button>
+        <button class="rail-btn" data-view="analyses" title="Central de Análises">
+            <span class="rail-icon" aria-hidden="true">⏱</span><span>Análises</span>
+            <span id="railQueueBadge" class="rail-badge hidden" title="Itens ativos na fila">0</span>
+        </button>
         <button class="rail-btn" data-view="game" title="Análise da partida">
             <span class="rail-icon">♟</span><span>Análise</span>
         </button>
@@ -84,6 +88,7 @@
                     <p class="muted" id="librarySubtitle">Importe arquivos PGN para começar.</p>
                 </div>
                 <div class="view-head-actions">
+                    <button id="queueAllBtn" class="btn btn-secondary">＋ Adicionar pendentes à fila</button>
                     <button id="loadSamplesBtn" class="btn btn-ghost">Carregar exemplos</button>
                     <button id="clearFiltersBtn" class="btn btn-ghost">Limpar filtros</button>
                 </div>
@@ -117,7 +122,7 @@
                 <div class="bulk-actions">
                     <button class="btn btn-sm btn-secondary" data-bulk="favorite">Favoritar</button>
                     <button class="btn btn-sm btn-secondary" data-bulk="tag">Adicionar tag</button>
-                    <button class="btn btn-sm btn-secondary" data-bulk="analyze">Analisar</button>
+                    <button class="btn btn-sm btn-secondary" data-bulk="analyze">Adicionar à fila</button>
                     <button class="btn btn-sm btn-secondary" data-bulk="export">Exportar PGN</button>
                     <button class="btn btn-sm btn-ghost danger" data-bulk="delete">Excluir</button>
                     <button class="btn btn-sm btn-ghost" data-bulk="clear">Limpar seleção</button>
@@ -156,6 +161,58 @@
                 <div class="table-footer">
                     <span id="listCount" class="muted"></span>
                     <div id="pagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== CENTRAL DE ANÁLISES ===================== -->
+        <section id="view-analyses" class="view" aria-label="Central de Análises">
+            <div class="view-head">
+                <div>
+                    <h2>Central de Análises</h2>
+                    <p class="muted" id="analysesSubtitle">A fila está vazia. Adicione partidas pela Biblioteca.</p>
+                </div>
+                <div class="view-head-actions">
+                    <button id="queueEnqueueAllBtn" class="btn btn-secondary">＋ Pendentes à fila</button>
+                    <button id="queueStartBtn" class="btn btn-primary">▶ Iniciar</button>
+                    <button id="queuePauseBtn" class="btn btn-secondary">⏸ Pausar</button>
+                    <button id="queueStopBtn" class="btn btn-ghost">⏹ Parar</button>
+                    <button id="queueClearDoneBtn" class="btn btn-ghost">Limpar concluídas</button>
+                </div>
+            </div>
+
+            <div id="queueStatusNotice" class="notice hidden" role="status" aria-live="polite"></div>
+
+            <div class="panel queue-summary">
+                <div class="queue-summary-top">
+                    <div>
+                        <h3>Progresso da fila</h3>
+                        <p class="muted small" id="queueSummaryText">Nenhum item na fila.</p>
+                    </div>
+                    <div id="queueCounters" class="queue-counters"></div>
+                </div>
+                <div class="progress-track queue-progress" role="progressbar" aria-valuemin="0"
+                     aria-valuemax="100" aria-label="Progresso geral da fila">
+                    <div id="queueProgressFill" class="progress-fill"></div>
+                </div>
+                <div class="queue-summary-foot">
+                    <span id="queueEta" class="muted small"></span>
+                    <span id="queueOwner" class="muted small"></span>
+                </div>
+            </div>
+
+            <div class="queue-toolbar">
+                <div id="queueFilters" class="chips queue-filters" role="group" aria-label="Filtrar fila"></div>
+                <button id="queueCancelPendingBtn" class="btn btn-sm btn-ghost danger">Cancelar pendentes</button>
+            </div>
+
+            <div id="queueList" class="queue-list"></div>
+            <div id="queueEmpty" class="empty-state hidden">
+                <span class="empty-icon">⏱</span>
+                <h3>Nenhum item na fila</h3>
+                <p>Selecione partidas na Biblioteca e use “Adicionar à fila”, ou enfileire todas as pendentes de uma vez.</p>
+                <div class="empty-actions">
+                    <button id="queueEmptyLibraryBtn" class="btn btn-primary">Ir para a Biblioteca</button>
                 </div>
             </div>
         </section>
@@ -475,10 +532,10 @@
                         <button id="exportJsonBtn" class="btn btn-secondary">Backup completo (JSON)</button>
                         <button id="importJsonBtn" class="btn btn-secondary">Restaurar backup (JSON)</button>
                         <input type="file" id="jsonInput" accept=".json" hidden>
-                        <button id="analyzeAllBtn" class="btn btn-secondary">Analisar partidas pendentes</button>
+                        <button id="analyzeAllBtn" class="btn btn-secondary">Adicionar pendentes à fila</button>
                         <button id="clearLibraryBtn" class="btn btn-ghost danger">Apagar toda a biblioteca</button>
                     </div>
-                    <p class="hint">O backup JSON inclui partidas, tags, análises e textos da IA. Antes de restaurar, o aplicativo valida o arquivo e gera um backup do estado atual.</p>
+                    <p class="hint">O backup JSON inclui partidas, tags, análises e textos da IA. Antes de restaurar, o aplicativo valida o arquivo e gera um backup do estado atual. A análise em lote agora entra na fila da Central de Análises.</p>
                 </div>
 
                 <div class="panel">
@@ -529,5 +586,6 @@
 <script src="js/game.js" defer></script>
 <script src="js/analytics.js" defer></script>
 <script src="js/settings.js" defer></script>
+<script src="js/queue-ui.js" defer></script>
 </body>
 </html>

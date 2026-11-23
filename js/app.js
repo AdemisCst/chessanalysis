@@ -294,6 +294,7 @@ function setView(name) {
     }
     if (name === 'openings') renderOpeningsView();
     if (name === 'stats') renderStatsView();
+    if (name === 'analyses' && window.QueueUI) QueueUI.activate();
     if (name === 'ai') { renderAIStatus(); loadAICache(); }
     if (name === 'settings') fillSettingsForm();
 }
@@ -642,6 +643,7 @@ async function init() {
     renderImportReport();
     renderLibrary();
     renderRailCount();
+    if (window.QueueUI) QueueUI.init();
     checkAI(true);
 }
 

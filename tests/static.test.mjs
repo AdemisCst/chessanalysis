@@ -22,11 +22,47 @@ test('index.html não contém elementos removidos na Fase 1', async () => {
     assert.equal(html.includes('localhost'), false);
 });
 
-test('navegação principal tem exatamente as cinco áreas oficiais', async () => {
+test('navegação principal tem as seis áreas oficiais', async () => {
     const html = await read('index.html');
     const nav = html.slice(html.indexOf('<nav class="rail"'), html.indexOf('</nav>'));
     const views = [...nav.matchAll(/data-view="([^"]+)"/g)].map(match => match[1]);
-    assert.deepEqual(views, ['library', 'game', 'stats', 'ai', 'settings']);
+    assert.deepEqual(views, ['library', 'analyses', 'game', 'stats', 'ai', 'settings']);
+});
+
+test('Central de Análises tem view, controles e módulo ligado', async () => {
+    const html = await read('index.html');
+    assert.ok(html.includes('id="view-analyses"'));
+    assert.ok(html.includes('js/queue-ui.js'));
+    for (const id of [
+        'queueStartBtn', 'queuePauseBtn', 'queueStopBtn', 'queueClearDoneBtn',
+        'queueList', 'queueFilters', 'queueEmpty', 'railQueueBadge', 'queueAllBtn',
+    ]) {
+        assert.ok(html.includes(`id="${id}"`), 'faltou #' + id);
+    }
+    assert.ok(html.includes('data-queue-filter="all"') === false); // filtros são renderizados pela UI
+    assert.ok(html.includes('adicionar à fila') || html.includes('Adicionar à fila'));
+    const ui = await read('js/queue-ui.js');
+    assert.ok(ui.includes('data-queue-filter='));
+});
+
+test('UI da fila usa o executor existente e não reimplementa storage', async () => {
+    const ui = await read('js/queue-ui.js');
+    assert.ok(ui.includes('new BroadcastChannel(CHANNEL_NAME)'));
+    assert.ok(ui.includes('QueueRunner.start()'));
+    assert.ok(ui.includes('QueueRunner.pause()'));
+    assert.ok(ui.includes('QueueRunner.stop()'));
+    assert.ok(ui.includes('DB.enqueueAnalyses('));
+    assert.ok(ui.includes('DB.getQueue()'));
+    assert.equal(ui.includes('claimLease('), false);
+    assert.equal(ui.includes('finishQueueItem('), false);
+});
+
+test('Biblioteca e Configurações enfileiram em vez de executar o modal antigo', async () => {
+    const library = await read('js/library.js');
+    const settings = await read('js/settings.js');
+    assert.ok(library.includes('QueueUI.enqueueGames('));
+    assert.ok(settings.includes('QueueUI.enqueueGames('));
+    assert.equal(settings.includes("title: 'Analisando partidas'"), false);
 });
 
 test('relatório, aviso de privacidade e controles de consentimento estão ligados', async () => {

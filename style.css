@@ -901,6 +901,56 @@ body.light .move-btn.ann-brilliant { color: #9333ea; }
 .toast.warning { border-left-color: var(--warning); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+/* ===================== 13 - CENTRAL DE ANÁLISES (M5) ===================== */
+.rail-btn { position: relative; }
+.rail-badge {
+    position: absolute;
+    top: 4px;
+    right: 7px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #05210f;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--bg);
+}
+.queue-summary { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.queue-summary h3 { margin-bottom: 2px; }
+.queue-summary-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.queue-counters { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+.queue-counters .chip strong { color: var(--text); font-weight: 700; }
+.queue-progress { height: 10px; }
+.queue-summary-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.queue-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.queue-filters { margin: 0; }
+.queue-filters .chip { cursor: pointer; font: inherit; }
+.queue-filters .chip:hover { border-color: var(--border-strong); color: var(--text); }
+.queue-filters .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.queue-list { display: flex; flex-direction: column; gap: 8px; }
+.queue-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    box-shadow: var(--shadow-sm);
+}
+.queue-item.state-running { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.queue-item.state-error { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.queue-item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.queue-item-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.queue-item-title strong { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; }
+.queue-item-meta { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 7px; }
+.queue-item-progress { height: 6px; }
+.queue-item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.queue-error { color: var(--danger); }
+.queue-filter-empty { padding: 26px 12px; text-align: center; }
+.queue-summary + .queue-toolbar { margin-top: 2px; }
+
 /* ===================== 12 - RESPONSIVIDADE ===================== */
 @media (max-width: 1320px) {
     .game-grid { grid-template-columns: 245px minmax(300px, 1fr) 320px; }
@@ -948,4 +998,7 @@ body.light .move-btn.ann-brilliant { color: #9333ea; }
     .games-table th:nth-child(6), .games-table td:nth-child(6),
     .games-table th:nth-child(8), .games-table td:nth-child(8) { display: none; }
     .move-list { max-height: 240px; }
+    .queue-item-head { align-items: flex-start; }
+    .queue-item-actions { width: 100%; }
+    .queue-counters { justify-content: flex-start; }
 }

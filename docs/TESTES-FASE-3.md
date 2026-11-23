@@ -1,9 +1,9 @@
 # Testes da Fase 3 — Chess-Analysis
 
 **Data:** 18/11/2026 (atualizado em 23/11/2026)  
-**Escopo:** M1 (banco v2, fila e checkpoints), M3 (retomada no motor) e
-M4 (executor com lease e BroadcastChannel)  
-**Ambiente:** Windows, Node v26.13.1, Edge headless 157.0.4341.60 (CDP 9333),
+**Escopo:** M1 (banco v2, fila e checkpoints), M3 (retomada no motor),
+M4 (executor com lease e BroadcastChannel) e M5 (Central de Análises)  
+**Ambiente:** Windows, Node v26.13.1, Edge headless 158.0.4370.33 (CDP 9333),
 servidor local `127.0.0.1:8765`
 
 > Todos os números abaixo vieram de execução real nesta máquina. Nada foi
@@ -18,8 +18,8 @@ node tools/check-syntax.cjs
 Tudo certo: sintaxe e JSON válidos.
 
 npm test
-tests 64
-pass 64
+tests 73
+pass 73
 fail 0
 ```
 
@@ -30,15 +30,18 @@ fail 0
 | `tests/api.test.mjs` | 8 | aprovado |
 | `tests/consent.test.mjs` | 5 | aprovado |
 | `tests/engine.test.mjs` | 9 | aprovado (2 novos na M3) |
-| `tests/static.test.mjs` | 10 | aprovado |
+| `tests/static.test.mjs` | 13 | aprovado (3 novos na M5) |
 | `tests/wdl.test.mjs` | 8 | aprovado |
 | `tests/storage.test.mjs` | 5 | aprovado (1 novo na M1) |
-| `tests/queue.test.mjs` | 19 | **novo** (11 na M1 + 8 na M4) |
-| **Total** | **64** | **64 aprovados** |
+| `tests/queue.test.mjs` | 19 | aprovado (11 na M1 + 8 na M4) |
+| `tests/queue-ui.test.mjs` | 6 | **novo na M5** |
+| **Total** | **73** | **73 aprovados** |
 
 A suíte anterior tinha 42 testes; a M1 acrescentou 12 (11 da fila + 1 de
-identidade) e a M3/M4 acrescentou 10 (8 de lease/checkpoint + 2 de validação de
-retomada). Nenhum teste antigo foi alterado.
+identidade), a M3/M4 acrescentou 10 (8 de lease/checkpoint + 2 de validação de
+retomada) e a M5 acrescentou 9 (6 de regras puras da UI + 3 estáticos). Nenhum
+teste antigo foi removido; o teste da navegação foi atualizado para as seis
+áreas oficiais.
 
 ### 1.2. Cobertura unitária da fila (`tests/queue.test.mjs`)
 
@@ -437,23 +440,147 @@ definição, então o console dela não é coletável depois do crash.
 
 ---
 
-## 5. O que a M1–M4 **não** testaram
+## 5. M5 — Central de Análises pela interface
 
-| Item | Motivo |
-|---|---|
-| UI da Central de Análises | fora do escopo até a M5 |
-| Retry manual pela interface | sem UI nesta etapa; a regra de estados já está fixada |
-| Cancelamento pela interface | a transição `canceled` existe no storage, mas a UI é M5 |
-| Simulação de quota cheia | `QuotaExceededError` está tratado no executor, mas não foi forçado no harness |
-| Duas abas disputando o teto ao mesmo tempo | a decisão ocorre dentro de uma transação `readwrite`, mas a corrida de enfileiramento não foi executada |
-| Retomada com worker de outra aba já aquecido | o ensaio usa Worker novo após o crash; o resultado é idêntico ao caminho contínuo em depth 1 |
+Harness `C:\Users\ademi\AppData\Local\Temp\opencode\cdp-m5.mjs`, Edge headless
+com perfil limpo. O ensaio usa os 3 exemplos embutidos (34, 22 e 14 posições,
+70 no total) em profundidade 10. A fila é criada pela **Biblioteca**, não por
+chamada direta ao executor.
 
-Nenhuma dessas lacunas bloqueia a M3/M4: todas pertencem à M5 ou a um teste de
-estresse separado.
+### 5.1. Entrada pela Biblioteca e início explícito
+
+O harness seleciona todas as partidas, renderiza a barra de lote e clica no
+botão real `[data-bulk="analyze"]` (“Adicionar à fila”). A UI então:
+
+```json
+"libraryClick": { "selected": 3, "clicked": true },
+"enqueued": {
+  "view": "analyses",
+  "viewActive": true,
+  "status": { "running": true, "role": "owner", "done": 0, "total": 34 },
+  "summary": "0 de 70 posições concluídas.",
+  "badge": "3"
+}
+```
+
+A view foi ativada, os 3 itens apareceram e o `QueueRunner` estava `owner`.
+Isso comprova o bloqueador apontado: a UI chama `QueueRunner.start()`
+explicitamente depois de `DB.enqueueAnalyses`.
+
+### 5.2. Atualização em tempo real e pausa
+
+O progresso apareceu sem recarregar a página. O listener do harness registrou
+**82 eventos** do `BroadcastChannel` em 3,419 s, incluindo `item-start`,
+`item-progress`, `queue-paused` e `item-done`. O clique real em `Pausar` foi
+feito assim que a primeira posição ficou pronta:
+
+```json
+"items": [
+  {
+    "state": "paused",
+    "attempts": 1,
+    "positionsDone": 2,
+    "positionsTotal": 34,
+    "lastError": "pausada pelo usuário"
+  },
+  { "state": "pending", "positionsDone": 0, "positionsTotal": 22 },
+  { "state": "pending", "positionsDone": 0, "positionsTotal": 14 }
+],
+"status": { "running": false, "role": "idle" },
+"summary": "2 de 70 posições concluídas.",
+"startLabel": "▶ Retomar",
+"pauseDisabled": true,
+"notice": "Fila pausada globalmente…"
+```
+
+O item pausado manteve o progresso e o checkpoint; os outros dois continuaram
+pendentes. A captura está em `m5-paused.png`.
+
+### 5.3. Retomada do checkpoint pela UI
+
+O clique real em `Retomar` chamou `QueueRunner.start()`, limpou a pausa global e
+reassumiu o item. O gancho de teste em `Engine.analyzeGame` registrou a
+retomada **no ponto 2**, com as 2 posições já verificadas:
+
+```json
+"resumeCalls": [
+  { "gameId": "g_6f68937a_33", "startIndex": 0, "seeds": 0 },
+  { "gameId": "g_6f68937a_33", "startIndex": 2, "seeds": 2 },
+  { "gameId": "g_5d157e8a_21", "startIndex": 0, "seeds": 0 },
+  { "gameId": "g_35daf9f3_13", "startIndex": 0, "seeds": 0 }
+]
+```
+
+Nenhuma posição foi refeita do zero. A captura `m5-resumed.png` mostra a fila
+já em “Em execução”, com 45/70 posições e ETA. O item retomado terminou com
+`attempts: 2` e `positionsDone: 34/34`.
+
+### 5.4. Conclusão, banco e limpeza
+
+```json
+"done": {
+  "status": { "running": false, "role": "idle" },
+  "summary": "70 de 70 posições concluídas.",
+  "items": [
+    { "state": "done", "attempts": 2, "positionsDone": 34, "positionsTotal": 34 },
+    { "state": "done", "attempts": 1, "positionsDone": 22, "positionsTotal": 22 },
+    { "state": "done", "attempts": 1, "positionsDone": 14, "positionsTotal": 14 }
+  ]
+}
+```
+
+O banco confirmou que cada item `done` tem exatamente uma análise completa:
+
+```json
+"analyses": [
+  { "gameId": "g_35daf9f3_13", "depth": 10, "positions": 14, "engineBuild": "stockfish-19-lite-single", "version": 3 },
+  { "gameId": "g_5d157e8a_21", "depth": 10, "positions": 22, "engineBuild": "stockfish-19-lite-single", "version": 3 },
+  { "gameId": "g_6f68937a_33", "depth": 10, "positions": 34, "engineBuild": "stockfish-19-lite-single", "version": 3 }
+],
+"games": [
+  { "analyzedDepth": 10, "analyzedBuild": "stockfish-19-lite-single", "hasSummary": true }
+]
+```
+
+`Limpar concluídas` foi acionado pelo botão real, seguido da confirmação no
+modal. A fila ficou vazia (`queue.length === 0`), o badge sumiu e o estado
+voltou a “Nenhum item na fila”; as 3 análises continuaram no banco. A captura
+final é `m5-cleared.png`.
+
+### 5.5. Console e artefatos
+
+```json
+"consoleErrors": [],
+"pageErrors": []
+```
+
+Capturas reais (Edge headless, 1440×1000):
+
+- `C:\Users\ademi\AppData\Local\Temp\opencode\m5-paused.png`
+- `C:\Users\ademi\AppData\Local\Temp\opencode\m5-resumed.png`
+- `C:\Users\ademi\AppData\Local\Temp\opencode\m5-done.png`
+- `C:\Users\ademi\AppData\Local\Temp\opencode\m5-cleared.png`
+
+JSON completo: `C:\Users\ademi\AppData\Local\Temp\opencode\m5-evidence.json`.
 
 ---
 
-## 6. Como reproduzir
+## 6. O que a M1–M5 **não** testaram
+
+| Item | Motivo |
+|---|---|
+| Simulação de quota cheia | `QuotaExceededError` está tratado no executor, mas não foi forçado no harness |
+| Duas abas disputando o teto ao mesmo tempo | a decisão ocorre dentro de uma transação `readwrite`, mas a corrida de enfileiramento não foi executada |
+| Retomada com worker de outra aba já aquecido | o ensaio usa Worker novo após o crash; o resultado é idêntico ao caminho contínuo em depth 1 |
+| Cancelamento individual e retry pela UI | existem na interface, mas o ensaio M5 cobriu pausa, retomada e limpeza de concluídas |
+| Fila sobreviver a fechar e reabrir o navegador | a retomada após crash de renderer foi comprovada; reload completo do navegador fica para a M6 |
+
+Nenhuma dessas lacunas bloqueia a M5: são cenários de estresse ou pertencem à
+revisão final (M6).
+
+---
+
+## 7. Como reproduzir
 
 ```powershell
 # servidor local e Edge headless (CDP 9333) já ativos
@@ -461,9 +588,10 @@ node tools/check-syntax.cjs
 npm test
 node "C:\Users\ademi\AppData\Local\Temp\opencode\cdp-m1-db.mjs"   # M1
 node "C:\Users\ademi\AppData\Local\Temp\opencode\cdp-m34.mjs"    # M3/M4
+node "C:\Users\ademi\AppData\Local\Temp\opencode\cdp-m5.mjs"     # M5
 ```
 
-Os dois harnesses são destrutivos para o perfil usado: eles apagam e recriam o
+Os harnesses são destrutivos para o perfil usado: eles apagam e recriam o
 banco `acervo64`. Rodar sempre com perfil limpo. O `cdp-m34.mjs` derruba o
 renderer da aba A de propósito (`Page.crash`); é esperado que ela não responda
 mais.

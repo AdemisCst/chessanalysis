@@ -1,10 +1,10 @@
 # Plano da Fase 3 — Central de Análises
 
 **Data:** 17/11/2026 (atualizado em 23/11/2026)  
-**Estado:** **M1, M3 e M4 concluídas** — DB v2 e regras da fila, retomada no
-motor e executor com lease/heartbeat/BroadcastChannel implementados e
-verificados; M5–M6 pendentes (UI e revisão final). Evidências em
-[`TESTES-FASE-3.md`](TESTES-FASE-3.md).  
+**Estado:** **M1, M3, M4 e M5 concluídas** — DB v2 e regras da fila,
+retomada no motor, executor com lease/heartbeat/BroadcastChannel e Central de
+Análises pela interface implementados e verificados; M6 pendente (revisão
+final). Evidências em [`TESTES-FASE-3.md`](TESTES-FASE-3.md).  
 **Base:** Fase 2 aprovada (motor SF19, proveniência `gameId@depth@build`,
 Expected Score v3 por WDL) e §9 de
 [`ARQUITETURA-INTEGRACAO.md`](ARQUITETURA-INTEGRACAO.md)
@@ -378,7 +378,7 @@ Extrair a lógica pura para `js/queue.js` (reducer + validadores) e testar em
 | ~~**M2**~~ | Absorvida pela M1: `js/queue.js` e testes unitários | — |
 | **M3** | `Engine.analyzeGame` com `startIndex`/`seedPositions`/`onPosition` | retomada real no smoke, mesmo resultado do caminho sem retomada — **concluída** (evidência §3 de `TESTES-FASE-3.md`) |
 | **M4** | Executor com lease/heartbeat + pausa/cancelar/retry | reload no meio retoma; duas abas coordenam — **concluída** (evidência §4) |
-| **M5** | View "Análises" + entradas pela Biblioteca/Configurações | fluxo completo pela interface, sem modal |
+| **M5** | View "Análises" + entradas pela Biblioteca/Configurações | fluxo completo pela interface, sem modal — **concluída** (evidência §5 de `TESTES-FASE-3.md`) |
 | **M6** | Evidências, documentação e revisão | `TESTES-FASE-3.md` §1 completo |
 
 Cada etapa tem commit próprio e não avança sem a anterior verificada.

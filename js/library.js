@@ -648,8 +648,11 @@ async function bulkDelete() {
 async function bulkAnalyze() {
     const games = selectedGames();
     if (!games.length) return;
-    if (typeof analyzeAll !== 'function') return;
-    await analyzeAll(games);
+    if (typeof QueueUI === 'undefined') {
+        toast('A Central de Análises não foi carregada.', 'error');
+        return;
+    }
+    await QueueUI.enqueueGames(games, { start: true, goToView: true });
 }
 
 async function bulkExport() {
@@ -858,5 +861,6 @@ function bindLibraryEvents() {
 
     $('loadSamplesBtn').addEventListener('click', loadSamples);
     $('emptySamplesBtn').addEventListener('click', loadSamples);
+    $('queueAllBtn').addEventListener('click', () => QueueUI.enqueuePending());
     $('exportBtn').addEventListener('click', openExportModal);
 }
