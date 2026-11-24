@@ -5,10 +5,19 @@
    ======================================================================== */
 
 /* ===================== ABERTURA DA PARTIDA ===================== */
+let gameOpenSequence = 0;
+
 async function openGame(id) {
+    const sequence = ++gameOpenSequence;
+    if (State.aiMoveController) {
+        State.aiMoveController.abort();
+        State.aiMoveController = null;
+    }
+    clearMoveExplanation();
     const meta = State.games.find(game => game.id === id);
     if (!meta) return;
     const data = await DB.get('data', id);
+    if (sequence !== gameOpenSequence) return;
     if (!data) {
         toast('Os lances desta partida não foram encontrados no banco local.', 'error');
         return;
@@ -27,6 +36,7 @@ async function openGame(id) {
             DB.getAI(id, 'summary'),
             DB.getAI(id, 'tags'),
         ]);
+        if (sequence !== gameOpenSequence) return;
         // Análises antigas não têm anotações (!!, ★, ×, ??, ?, !, 👍).
         // O enriquecimento reaproveita as posições salvas, sem reanalisar.
         State.analysis = analysis ? Engine.enrichAnalysis(analysis, data) : null;
@@ -412,14 +422,93 @@ function renderAnalysisTab() {
             const title = [info.label];
             if (moment.loss != null) title.push(`perda de ${moment.loss}pp`);
             if (moment.bestSan) title.push(`melhor era ${moment.bestSan}`);
-            return `<button class="km-item ann-${key}" data-ply="${moment.ply}" title="${escapeHtml(title.join(' · '))}">
-                        <span class="km-ply">${moveNumber}</span>
-                        <span class="km-move"><span class="san">${escapeHtml(moment.san)}</span> · ${info.label} (${mover})</span>
-                        <span class="km-symbol ann-${key}" aria-hidden="true">${info.symbol}</span>
-                    </button>`;
+            const explainLabel = `Pedir explicação à IA para ${moveNumber} ${moment.san}`;
+            return `<div class="km-row">
+                        <button type="button" class="km-item ann-${key}" data-ply="${moment.ply}" title="${escapeHtml(title.join(' · '))}">
+                            <span class="km-ply">${moveNumber}</span>
+                            <span class="km-move"><span class="san">${escapeHtml(moment.san)}</span> · ${info.label} (${mover})</span>
+                            <span class="km-symbol ann-${key}" aria-hidden="true">${info.symbol}</span>
+                        </button>
+                        <button type="button" class="btn-icon km-explain" data-explain-ply="${moment.ply}"
+                            aria-label="${escapeHtml(explainLabel)}" title="Pedir explicação à IA">🪄</button>
+                    </div>`;
         }).join('');
     }
     renderEvalGraph();
+}
+
+function clearMoveExplanation() {
+    const panel = $('aiMoveExplanation');
+    const output = $('aiMoveExplanationText');
+    const stopButton = $('aiMoveExplainStopBtn');
+    if (!panel || !output || !stopButton) return;
+    panel.classList.add('hidden');
+    stopButton.classList.add('hidden');
+    output.innerHTML = '<p class="muted small">A explicação do lance aparecerá aqui.</p>';
+}
+
+async function explainCriticalMove(ply) {
+    if (!State.current || !State.data || !State.analysis || State.aiBusy) return;
+    const game = State.current;
+    const data = State.data;
+    const analysis = State.analysis;
+    const sequence = gameOpenSequence;
+    if (!(await requireAI())) return;
+    if (sequence !== gameOpenSequence || !State.current
+        || State.current.id !== game.id || State.analysis !== analysis) return;
+
+    const moment = (analysis.keyMoments || []).find(item => Number(item.ply) === ply);
+    if (!moment) return;
+    const move = analysis.moves && analysis.moves[ply - 1];
+    const position = analysis.positions && analysis.positions[ply - 1];
+    const fen = PGN.fenAt(data, ply - 1);
+    const pvSan = position && Array.isArray(position.pv) && window.Report
+        && Report._internal && typeof Report._internal.pvToSan === 'function'
+        ? Report._internal.pvToSan(fen, position.pv)
+        : '';
+    const context = {
+        fen,
+        color: moment.color,
+        playedSan: moment.san,
+        classification: move ? move.annotation : moment.annotation,
+        loss: move && move.loss != null ? move.loss : moment.loss,
+        bestMove: move && move.bestSan ? move.bestSan : moment.bestSan,
+        pvSan,
+    };
+
+    State.aiBusy = true;
+    setAIBusy(true);
+    const panel = $('aiMoveExplanation');
+    const output = $('aiMoveExplanationText');
+    const stopButton = $('aiMoveExplainStopBtn');
+    const moveNumber = Math.ceil(ply / 2) + (moment.color === 'b' ? '...' : '.');
+    $('aiMoveExplanationTitle').textContent = `Explicação do lance ${moveNumber} ${moment.san}`;
+    panel.classList.remove('hidden');
+    stopButton.classList.remove('hidden');
+    const stream = streamTarget(output);
+    const controller = new AbortController();
+    State.aiMoveController = controller;
+    State.aiController = controller;
+
+    try {
+        await AI.request(AI.moveExplanationMessages(context), {
+            onToken: stream.push,
+            signal: controller.signal,
+        });
+        stream.finish();
+    } catch (error) {
+        const message = error.name === 'AbortError' ? 'Explicação cancelada.' : AI.describeError(error);
+        stream.fail(message);
+        if (error.name !== 'AbortError' || State.aiMoveController === controller) {
+            toast(message, error.name === 'AbortError' ? 'info' : 'error');
+        }
+    } finally {
+        if (State.aiMoveController === controller) State.aiMoveController = null;
+        if (State.aiController === controller) State.aiController = null;
+        State.aiBusy = false;
+        stopButton.classList.add('hidden');
+        setAIBusy(false);
+    }
 }
 
 async function analyzeCurrent() {
@@ -432,6 +521,11 @@ async function analyzeCurrent() {
         toast('Já existe uma análise em andamento.', 'info');
         return;
     }
+    if (State.aiMoveController) {
+        State.aiMoveController.abort();
+        State.aiMoveController = null;
+    }
+    clearMoveExplanation();
     const controller = new AbortController();
     State.analysisRun = controller;
     const depth = Settings.get().depth;
@@ -684,6 +778,9 @@ function bindGameEvents() {
     });
     $('aiSummaryBtn').addEventListener('click', generateSummary);
     $('aiTagsBtn').addEventListener('click', generateTags);
+    $('aiMoveExplainStopBtn').addEventListener('click', () => {
+        if (State.aiMoveController) State.aiMoveController.abort();
+    });
 
     $('favBtn').addEventListener('click', () => {
         if (State.current) toggleFavorite(State.current.id);
@@ -730,6 +827,12 @@ function bindGameEvents() {
         if (button) setPly(Number(button.dataset.ply));
     });
     $('keyMoments').addEventListener('click', event => {
+        const explainButton = event.target.closest('[data-explain-ply]');
+        if (explainButton) {
+            event.stopPropagation();
+            explainCriticalMove(Number(explainButton.dataset.explainPly));
+            return;
+        }
         const button = event.target.closest('[data-ply]');
         if (button) setPly(Number(button.dataset.ply));
     });

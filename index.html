@@ -340,6 +340,15 @@
                             <div id="annotationLegend" class="annotation-legend" aria-label="Legenda das anotações"></div>
                             <h4>Momentos-chave</h4>
                             <div id="keyMoments" class="key-moments"></div>
+                            <section id="aiMoveExplanation" class="ai-move-explanation hidden" aria-live="polite">
+                                <div class="ai-move-explanation-head">
+                                    <h4 id="aiMoveExplanationTitle">Explicação do lance</h4>
+                                    <button id="aiMoveExplainStopBtn" class="btn btn-sm btn-ghost hidden" type="button">Cancelar</button>
+                                </div>
+                                <div id="aiMoveExplanationText" class="ai-output">
+                                    <p class="muted small">A explicação do lance aparecerá aqui.</p>
+                                </div>
+                            </section>
                             <p id="analysisHint" class="muted small">Clique em “Analisar” para gerar a análise com Stockfish.</p>
                         </div>
 

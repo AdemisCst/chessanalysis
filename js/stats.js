@@ -466,6 +466,49 @@ const Stats = (() => {
         return stats;
     }
 
+    function selectRepertoireOpenings(openings, totalsByColor) {
+        const totals = totalsByColor || {};
+        const result = {};
+        ['w', 'b'].forEach(color => {
+            const totalGames = Math.max(0, Math.floor(Number(totals[color]) || 0));
+            const candidates = (openings || []).filter(item =>
+                item.color === color
+                && Number(item.games) > 0
+                && item.pct != null
+                && Number.isFinite(Number(item.pct))
+            );
+            const meetingShare = share => totalGames
+                ? candidates.filter(item => Number(item.games) / totalGames >= share)
+                : [];
+
+            let selected = meetingShare(0.30);
+            let strategy = '30%';
+            if (!selected.length) {
+                selected = meetingShare(0.15);
+                strategy = '15%';
+            }
+            if (!selected.length) {
+                selected = candidates
+                    .filter(item => Number(item.games) >= 5)
+                    .slice()
+                    .sort((a, b) => Number(b.games) - Number(a.games)
+                        || String(a.name || '').localeCompare(String(b.name || '')))
+                    .slice(0, 5);
+                strategy = 'top5';
+            }
+
+            const best = selected.slice().sort((a, b) => Number(b.pct) - Number(a.pct)
+                || Number(b.games) - Number(a.games)
+                || String(a.name || '').localeCompare(String(b.name || ''))).slice(0, 5);
+            const worst = selected.slice().sort((a, b) => Number(a.pct) - Number(b.pct)
+                || Number(b.games) - Number(a.games)
+                || String(a.name || '').localeCompare(String(b.name || ''))).slice(0, 5);
+
+            result[color] = { totalGames, strategy, best, worst };
+        });
+        return result;
+    }
+
     function buildBrief(stats) {
         const colorRecord = record => ({
             jogos: record.games,
@@ -533,6 +576,7 @@ const Stats = (() => {
         identifyPlayer,
         userColor,
         outcome,
+        selectRepertoireOpenings,
         timeControlCategory,
         normalize,
         namesMatch,

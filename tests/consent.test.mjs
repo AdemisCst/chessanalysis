@@ -26,15 +26,17 @@ function loadAI(privacy) {
 
 test('consentimento concedido sob a versão antiga deixa de valer', () => {
     const old = loadAI({ blocked: false, consentVersion: '2026-11-16-v1', consentAt: 1 });
-    assert.equal(old.AI.CONSENT_VERSION, '2026-11-17-v2');
+    assert.equal(old.AI.CONSENT_VERSION, '2026-11-24-v3');
     assert.equal(old.AI.hasConsent(), false, 'versão antiga deve pedir novo aviso');
 
     const current = loadAI({ blocked: false, consentVersion: old.AI.CONSENT_VERSION, consentAt: 1 });
     assert.equal(current.AI.hasConsent(), true);
+    const previous = loadAI({ blocked: false, consentVersion: '2026-11-17-v2', consentAt: 1 });
+    assert.equal(previous.AI.hasConsent(), false, 'consentimento anterior não cobre FEN e dados de abertura');
 });
 
 test('“Não enviar dados à IA” continua bloqueando o envio', () => {
-    const blocked = loadAI({ blocked: true, consentVersion: '2026-11-17-v2', consentAt: 1 });
+    const blocked = loadAI({ blocked: true, consentVersion: '2026-11-24-v3', consentAt: 1 });
     assert.equal(blocked.AI.isBlocked(), true);
     assert.equal(blocked.AI.hasConsent(), true);
     assert.equal(blocked.AI.privacy().blocked, true);
@@ -52,6 +54,8 @@ test('o modal mantém a opção de recusar e identifica provedor/modelo dinamica
     assert.ok(ai.includes('Não enviar'));
     assert.ok(ai.includes('providerInfo()'));
     assert.ok(ai.includes('api.groq.com'));
+    assert.ok(ai.includes('FEN, cor, lance, classificação, perda, melhor lance e PV em SAN'));
+    assert.ok(ai.includes('PGN completo'));
 });
 
 test('providerInfo lê State.ai (const global), não window.State', () => {

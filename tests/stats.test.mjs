@@ -207,6 +207,56 @@ test('agrega aberturas por ECO/nome e limita a lista às cinco mais jogadas', ()
     assert.deepEqual(Array.from(stats.topOpenings, opening => opening.games), [2, 1, 1, 1, 1]);
 });
 
+test('seleciona aberturas por cor com o limite inicial de 30%', () => {
+    const openings = [
+        { color: 'w', name: 'Frequente', games: 30, pct: 60 },
+        { color: 'w', name: 'Boa amostra menor', games: 29, pct: 95 },
+        { color: 'b', name: 'Defesa', games: 4, pct: 50 },
+    ];
+
+    const selected = Stats.selectRepertoireOpenings(openings, { w: 100, b: 20 });
+
+    assert.equal(selected.w.strategy, '30%');
+    assert.deepEqual(Array.from(selected.w.best, opening => opening.name), ['Frequente']);
+    assert.equal(selected.b.strategy, '15%');
+    assert.deepEqual(Array.from(selected.b.best, opening => opening.name), ['Defesa']);
+});
+
+test('usa o fallback de 15% somente quando nenhuma abertura atinge 30%', () => {
+    const openings = [
+        { color: 'w', name: 'Mais forte', games: 20, pct: 70 },
+        { color: 'w', name: 'Menos forte', games: 15, pct: 40 },
+        { color: 'w', name: 'Abaixo do limite', games: 14, pct: 99 },
+    ];
+
+    const selected = Stats.selectRepertoireOpenings(openings, { w: 100 });
+
+    assert.equal(selected.w.strategy, '15%');
+    assert.deepEqual(Array.from(selected.w.best, opening => opening.name), ['Mais forte', 'Menos forte']);
+    assert.deepEqual(Array.from(selected.w.worst, opening => opening.name), ['Menos forte', 'Mais forte']);
+});
+
+test('fallback final escolhe até cinco aberturas mais jogadas com mínimo de cinco partidas', () => {
+    const openings = [8, 7, 6, 5, 5, 4].map((games, index) => ({
+        color: 'b',
+        name: `Linha ${index + 1}`,
+        games,
+        pct: index * 10,
+    }));
+
+    const selected = Stats.selectRepertoireOpenings(openings, { b: 100 });
+
+    assert.equal(selected.b.strategy, 'top5');
+    assert.equal(selected.b.best.length, 5);
+    assert.equal(selected.b.worst.length, 5);
+    assert.ok([...selected.b.best, ...selected.b.worst].every(opening => opening.games >= 5));
+    assert.equal([...selected.b.best, ...selected.b.worst].some(opening => opening.name === 'Linha 6'), false);
+    assert.equal(Stats.selectRepertoireOpenings(
+        [{ color: 'b', name: 'Poucas', games: 4, pct: 50 }],
+        { b: 100 }
+    ).b.best.length, 0);
+});
+
 test('Dashboard tem filtros próprios e apenas uma tabela de aberturas com cada ID', () => {
     for (const id of [
         'statsSourceFilter', 'statsTimeControlFilter', 'statsPeriodFilter',

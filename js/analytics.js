@@ -566,54 +566,55 @@ function localInsights(brief) {
     return lines.join('\n');
 }
 
-function localRepertoire(stats) {
-    const identity = stats.identity || Stats.identifyPlayer(State.games, Settings.playerNameList());
-    const rows = window.Openings ? Openings.compute(State.games, identity) : [];
-    const byColor = color => rows.filter(row => row.color === color);
-    const best = list => list.slice().sort((a, b) => (b.pct || 0) - (a.pct || 0))[0];
-    const worst = list => list.slice().sort((a, b) => (a.pct || 0) - (b.pct || 0))[0];
-    const white = byColor('w');
-    const black = byColor('b');
-    const whiteBest = best(white);
-    const blackBest = best(black);
-    const alerts = rows.filter(row => row.pct != null && row.pct < 50).sort((a, b) => a.pct - b.pct).slice(0, 4);
+function buildRepertoireSelection(stats) {
+    const totals = State.games.reduce((counts, game) => {
+        const color = Stats.userColor(game, stats.identity);
+        if (color) counts[color] += 1;
+        return counts;
+    }, { w: 0, b: 0 });
+    const catalogGames = State.games.filter(game => game.openingSource === 'lichess');
+    const rows = Openings.compute(catalogGames, stats.identity);
+    return Stats.selectRepertoireOpenings(rows, totals);
+}
+
+function localRepertoire(selection) {
+    const whiteBest = selection.w.best[0];
+    const blackBest = selection.b.best[0];
+    const alerts = selection.w.worst.concat(selection.b.worst);
     const lines = [];
 
     lines.push('## Como brancas');
     if (whiteBest) {
-        lines.push(`Mantenha **${whiteBest.name}** (${whiteBest.eco}) como eixo: ${pctOrDash(whiteBest.pct)} em ${whiteBest.games} partida(s). `
+        lines.push(`Mantenha **${whiteBest.name}** (${whiteBest.eco}) como eixo: ${pctOrDash(whiteBest.pct)} em ${whiteBest.games} partida(s), `
+            + `${whiteBest.win} vitória(s), ${whiteBest.draw} empate(s) e ${whiteBest.loss} derrota(s). `
             + 'Escolha uma segunda linha apenas para variar o ritmo.');
     } else {
-        lines.push('Ainda não há partidas suas com brancas identificadas. Defina seu nome nas Configurações.');
+        lines.push('Ainda não há aberturas com amostra suficiente nas partidas de brancas.');
     }
 
     lines.push('');
     lines.push('## Como pretas');
     if (blackBest) {
-        lines.push(`Mantenha **${blackBest.name}** (${blackBest.eco}) como base: ${pctOrDash(blackBest.pct)} em ${blackBest.games} partida(s). `
+        lines.push(`Mantenha **${blackBest.name}** (${blackBest.eco}) como base: ${pctOrDash(blackBest.pct)} em ${blackBest.games} partida(s), `
+            + `${blackBest.win} vitória(s), ${blackBest.draw} empate(s) e ${blackBest.loss} derrota(s). `
             + 'Contra 1.e4 e 1.d4, escolha respostas que você já entende, não a mais popular.');
     } else {
-        lines.push('Ainda não há partidas suas com pretas identificadas.');
+        lines.push('Ainda não há aberturas com amostra suficiente nas partidas de pretas.');
     }
 
     lines.push('');
     lines.push('## Repertório em Alerta');
-    if (alerts.length) {
-        alerts.forEach(row => {
-            lines.push(`- **${row.name}** (${row.eco}, ${row.color === 'w' ? 'brancas' : 'pretas'}): ${pctOrDash(row.pct)} em ${row.games} partida(s). Reduza a frequência ou ajuste a linha.`);
+    const distinctAlerts = alerts.filter((row, index, list) =>
+        list.findIndex(item => item.color === row.color && item.eco === row.eco && item.name === row.name) === index
+    );
+    if (distinctAlerts.length) {
+        distinctAlerts.forEach(row => {
+            lines.push(`- **${row.name}** (${row.eco}, ${row.color === 'w' ? 'brancas' : 'pretas'}): `
+                + `${pctOrDash(row.pct)} em ${row.games} partida(s), ${row.win}V/${row.draw}E/${row.loss}D. `
+                + 'Revise as partidas antes de decidir se deve alterar a linha.');
         });
     } else {
-        lines.push('Nenhuma abertura com aproveitamento abaixo de 50% apareceu até agora.');
-    }
-
-    lines.push('');
-    lines.push('## Rating Médio dos Adversários');
-    const rating = stats.opponentRating || {};
-    if (rating.games) {
-        lines.push(`A média dos adversários é **${rating.average}** em ${rating.games} partida(s) com rating. `
-            + 'Em ratings mais altos, evite linhas que dependem de erros simples do adversário.');
-    } else {
-        lines.push('Os PGNs não trazem rating dos adversários suficiente para calcular uma média.');
+        lines.push('Ainda não há amostra suficiente para apontar aberturas em alerta.');
     }
 
     lines.push('');
@@ -698,12 +699,29 @@ async function generateRepertoire() {
         toast('Importe partidas antes de gerar um repertório.', 'warning');
         return;
     }
-    const stats = Stats.compute(State.games, Settings.playerNameList());
+    const stats = Stats.compute(State.games, Settings.playerNameList(), { includeRating: false });
     if (!stats.identity.name) {
         toast('Defina seu nome nas Configurações para gerar um repertório por cor.', 'warning');
         return;
     }
     if (State.aiBusy) return;
+    const selection = buildRepertoireSelection(stats);
+    const hasOpenings = selection.w.best.length || selection.w.worst.length
+        || selection.b.best.length || selection.b.worst.length;
+
+    if (!hasOpenings) {
+        const record = {
+            text: localRepertoire(selection),
+            model: 'leitura local',
+            createdAt: Date.now(),
+            source: 'local',
+        };
+        State.repertoire = record;
+        await DB.saveMeta('repertoire', record);
+        renderRepertoire();
+        toast('Ainda não há aberturas com amostra suficiente para uma sugestão.', 'info');
+        return;
+    }
 
     let allowed = false;
     if (!AI.isBlocked()) {
@@ -712,7 +730,7 @@ async function generateRepertoire() {
     }
 
     if (!allowed) {
-        const text = localRepertoire(stats);
+        const text = localRepertoire(selection);
         const record = { text, model: 'leitura local', createdAt: Date.now(), source: 'local' };
         State.repertoire = record;
         await DB.saveMeta('repertoire', record);
@@ -735,7 +753,7 @@ async function generateRepertoire() {
 
     try {
         const response = await AI.request(
-            AI.repertoireMessages(stats.brief),
+            AI.repertoireMessages(selection),
             { onToken: stream.push, signal: controller.signal }
         );
         stream.finish();
@@ -749,7 +767,7 @@ async function generateRepertoire() {
             stream.fail('Geração cancelada.');
             toast('Geração cancelada.', 'info');
         } else {
-            const text = localRepertoire(stats);
+            const text = localRepertoire(selection);
             const record = { text, model: 'leitura local', createdAt: Date.now(), source: 'local' };
             State.repertoire = record;
             await DB.saveMeta('repertoire', record);

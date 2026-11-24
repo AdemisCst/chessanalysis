@@ -24,6 +24,7 @@ const State = {
     aiCacheLoaded: false,
     aiBusy: false,
     aiController: null,
+    aiMoveController: null,
     chatHistory: [],
     chatSources: [],
     importReport: null,
@@ -413,6 +414,7 @@ function setAIBusy(busy) {
         const element = $(id);
         if (element) element.disabled = !!busy;
     });
+    $$('[data-explain-ply]').forEach(element => { element.disabled = !!busy; });
 }
 
 /**
