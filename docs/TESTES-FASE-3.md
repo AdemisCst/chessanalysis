@@ -18,8 +18,8 @@ node tools/check-syntax.cjs
 Tudo certo: sintaxe e JSON válidos.
 
 npm test
-tests 73
-pass 73
+tests 81
+pass 81
 fail 0
 ```
 
@@ -35,11 +35,14 @@ fail 0
 | `tests/storage.test.mjs` | 5 | aprovado (1 novo na M1) |
 | `tests/queue.test.mjs` | 19 | aprovado (11 na M1 + 8 na M4) |
 | `tests/queue-ui.test.mjs` | 6 | **novo na M5** |
-| **Total** | **73** | **73 aprovados** |
+| `tests/report.test.mjs` | 8 | **novo (revisão do PDF)** |
+| **Total** | **81** | **81 aprovados** |
 
 A suíte anterior tinha 42 testes; a M1 acrescentou 12 (11 da fila + 1 de
 identidade), a M3/M4 acrescentou 10 (8 de lease/checkpoint + 2 de validação de
-retomada) e a M5 acrescentou 9 (6 de regras puras da UI + 3 estáticos). Nenhum
+retomada), a M5 acrescentou 9 (6 de regras puras da UI + 3 estáticos) e a
+revisão do PDF acrescentou 8 (lista de lances, Momentos Críticos, escaping e
+CSS de impressão). Nenhum
 teste antigo foi removido; o teste da navegação foi atualizado para as seis
 áreas oficiais.
 

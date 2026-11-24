@@ -157,6 +157,29 @@ const Report = (() => {
         }).join('');
     }
 
+    function moveAnnotationSymbol(annotations, index) {
+        const record = annotations[index];
+        if (!record || !record.annotation) return '';
+        return record.symbol || annotationInfo(record.annotation).symbol;
+    }
+
+    function moveListRows(data, analysis) {
+        const moves = data && Array.isArray(data.moves) ? data.moves : [];
+        const annotations = analysis && Array.isArray(analysis.moves) ? analysis.moves : [];
+        const rows = [];
+        for (let index = 0; index < moves.length; index += 2) {
+            const white = moves[index];
+            const black = moves[index + 1];
+            const whiteAnnotation = moveAnnotationSymbol(annotations, index);
+            const blackAnnotation = black ? moveAnnotationSymbol(annotations, index + 1) : '';
+            rows.push(`<tr>
+                <td>${Math.floor(index / 2) + 1}. ${esc(white.san)}${whiteAnnotation ? ` <span class="sym">${esc(whiteAnnotation)}</span>` : ''}</td>
+                <td>${black ? `${esc(black.san)}${blackAnnotation ? ` <span class="sym">${esc(blackAnnotation)}</span>` : ''}` : ''}</td>
+            </tr>`);
+        }
+        return rows.join('');
+    }
+
     function beforeFen(data, ply) {
         if (!data) return null;
         if (ply <= 1) return data.startFen || null;
@@ -201,15 +224,18 @@ const Report = (() => {
             const variant = position && position.pv && position.pv.length
                 ? pvToSan(beforeFen(data, ply), position.pv)
                 : '';
-            return `<tr>
-                <td>${esc(moveLabel(ply, moment.color))}</td>
-                <td><strong>${esc(moment.san)}</strong></td>
-                <td>${esc(sideLabel(moment.color))}</td>
-                <td class="sym">${esc(info.symbol)} ${esc(info.label)}</td>
-                <td>${esc(loss)}</td>
-                <td>${esc(moment.bestSan || '—')}</td>
-                <td>${esc(explanation)}${variant ? `<br><span class="variant">Linha do Stockfish: ${esc(variant)}</span>` : ''}</td>
-            </tr>`;
+            const cells = [
+                esc(moveLabel(ply, moment.color)),
+                `<strong>${esc(moment.san)}</strong>`,
+                esc(sideLabel(moment.color)),
+                `${esc(info.symbol)} ${esc(info.label)}`,
+                esc(loss),
+                esc(moment.bestSan || '—'),
+                `${esc(explanation)}${variant ? `<br><span class="variant">Linha do Stockfish: ${esc(variant)}</span>` : ''}`,
+            ];
+            return `<tr>${cells.map((content, index) =>
+                `<td${index === 3 ? ' class="sym"' : ''}>${content}</td>`
+            ).join('')}</tr>`;
         }).join('');
     }
 
@@ -336,10 +362,18 @@ const Report = (() => {
     .toolbar button { font: inherit; padding: 7px 14px; border-radius: 7px; border: 1px solid #16a34a; background: #16a34a; color: #fff; cursor: pointer; }
     .toolbar span { color: #667085; font-size: 11px; }
     .no-break { page-break-inside: avoid; }
+    /* Sem quebra forçada: a lista de lances começa logo após a seção
+       anterior. O h2 já tem page-break-after: avoid, então o título não
+       fica órfão no fim da página nem abre uma página em branco. */
+    .moves-section { margin-top: 4px; }
     @media print {
         body { margin: 0; max-width: none; padding: 0; }
-        .toolbar { display: none; }
-        .card, tr, .callout { page-break-inside: avoid; }
+        .toolbar { position: static; display: none; }
+        /* table-header-group repete o cabeçalho em cada página; table-row-group
+           (valor usado antes) transformava o thead num grupo comum e cancelava
+           a repetição. */
+        thead { display: table-header-group; }
+        .card, tr, .callout { page-break-inside: avoid; break-inside: avoid; }
     }
 </style>
 </head>
@@ -373,6 +407,14 @@ const Report = (() => {
     ${analysis && analysis.phaseAccuracy ? `<h2>Precisão por fase</h2>
         <table><thead><tr><th>Fase</th><th>Brancas</th><th>Pretas</th></tr></thead><tbody>${phaseRows(analysis)}</tbody></table>`
         : ''}
+
+    <section class="moves-section">
+        <h2>Lista completa de lances</h2>
+        ${moves.length ? `<table class="move-list">
+            <thead><tr><th>Brancas</th><th>Pretas</th></tr></thead>
+            <tbody>${moveListRows(data, analysis)}</tbody>
+        </table>` : '<p class="muted">Esta partida não tem lances válidos.</p>'}
+    </section>
 
     ${analysis && analysis.keyMoments && analysis.keyMoments.length ? `<h2>Momentos críticos</h2>
         <table><thead><tr><th>Lance</th><th>Jogada</th><th>Lado</th><th>Classificação</th><th>Perda</th><th>Melhor</th><th>Explicação</th></tr></thead>
