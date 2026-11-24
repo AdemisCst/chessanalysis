@@ -202,6 +202,11 @@ const Stats = (() => {
         const years = includeRating ? new Map() : null;
         const eloSeries = [];
         const phases = { opening: 0, middlegame: 0, endgame: 0 };
+        const phaseResults = {
+            opening: { games: 0, win: 0, draw: 0, loss: 0 },
+            middlegame: { games: 0, win: 0, draw: 0, loss: 0 },
+            endgame: { games: 0, win: 0, draw: 0, loss: 0 },
+        };
         const accuracy = { w: [], b: [] };
         const annotations = { user: blankAnnotations(), opponent: blankAnnotations() };
         const precision = {
@@ -280,6 +285,14 @@ const Stats = (() => {
                         phases.opening += summary.phaseBlunders.opening || 0;
                         phases.middlegame += summary.phaseBlunders.middlegame || 0;
                         phases.endgame += summary.phaseBlunders.endgame || 0;
+                    }
+                    if (result && summary.phaseAccuracy) {
+                        ['opening', 'middlegame', 'endgame'].forEach(phase => {
+                            const phaseAccuracy = summary.phaseAccuracy[phase];
+                            if (!phaseAccuracy || (phaseAccuracy.w == null && phaseAccuracy.b == null)) return;
+                            phaseResults[phase].games++;
+                            phaseResults[phase][result]++;
+                        });
                     }
                     if (summary.accuracyW != null) accuracy.w.push(summary.accuracyW);
                     if (summary.accuracyB != null) accuracy.b.push(summary.accuracyB);
@@ -433,6 +446,7 @@ const Stats = (() => {
             topOpenings: openingList.slice(0, 5),
             timeControls: timeControlList,
             phases,
+            phaseResults,
             accuracy: { w: avg(accuracy.w), b: avg(accuracy.b) },
             precision: precisionResult,
             excludedAnalyses,

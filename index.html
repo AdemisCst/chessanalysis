@@ -423,11 +423,17 @@
                 </label>
             </div>
             <div id="statsCards" class="stat-cards"></div>
-            <div class="stats-grid">
-                <div class="panel span-2">
-                    <h3>Precisão ao longo do tempo</h3>
+            <div class="stats-grid stats-chart-grid">
+                <div class="panel stats-chart-panel accuracy-chart-panel">
+                    <h3>Precisão nas últimas partidas analisadas</h3>
                     <div id="accuracyChart" class="chart"></div>
                 </div>
+                <div class="panel stats-chart-panel phase-results-panel">
+                    <h3>Resultados por fase</h3>
+                    <div id="phaseResultsChart" class="chart phase-results-chart"></div>
+                </div>
+            </div>
+            <div class="stats-grid">
                 <div class="panel">
                     <h3>Precisão e ACPL</h3>
                     <div id="precisionPanel"></div>

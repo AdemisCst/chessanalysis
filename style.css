@@ -842,6 +842,15 @@ body.light .move-btn.ann-brilliant { color: #9333ea; }
 .stat-card .stat-sub { font-size: 0.74rem; color: var(--text-muted); }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .stats-grid .panel { min-width: 0; }
+.stats-chart-grid { margin-bottom: 12px; }
+.stats-chart-panel h3 { margin-bottom: 8px; }
+.view.active .stats-chart-panel { animation: statsChartIn var(--motion-slow) var(--ease-standard) both; }
+.view.active .accuracy-chart-panel { animation-delay: 30ms; }
+.view.active .phase-results-panel { animation-delay: 80ms; }
+@keyframes statsChartIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 .mini-table-wrap { overflow-x: auto; }
 .mini-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
 .mini-table th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 6px 5px; border-bottom: 1px solid var(--border); }
@@ -868,8 +877,13 @@ body.light .move-btn.ann-brilliant { color: #9333ea; }
 .phase-bar { height: 14px; border-radius: 6px; background: var(--bg-soft); overflow: hidden; }
 .phase-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--danger), var(--warning)); }
 .chart svg { width: 100%; height: 220px; display: block; }
-.chart circle[data-game] { cursor: pointer; }
-.chart circle[data-game]:hover { r: 5; }
+.chart circle[data-game] {
+    cursor: pointer;
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform var(--motion-fast) var(--ease-standard);
+}
+.chart circle[data-game]:hover { transform: scale(1.35); }
 .chart-empty { color: var(--text-muted); font-size: 0.85rem; padding: 30px 10px; text-align: center; }
 
 /* Precisão (você × adversários), distribuição e fases. */

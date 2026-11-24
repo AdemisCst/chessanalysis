@@ -146,6 +146,7 @@ function renderStatsView() {
         $('phaseAccuracy').innerHTML = '';
         $('brilliantPhase').innerHTML = '';
         $('accuracyChart').innerHTML = '<div class="chart-empty">Sem dados.</div>';
+        $('phaseResultsChart').innerHTML = '<div class="chart-empty">Sem dados.</div>';
         return;
     }
 
@@ -242,6 +243,7 @@ function renderStatsView() {
     renderPhaseAccuracy(stats);
     renderBrilliantPhase(stats);
     renderAccuracyChart(stats);
+    renderPhaseResultsChart(stats);
 }
 
 /* ---------- precisão, ACPL, anotações e brilhantes ---------- */
@@ -332,7 +334,7 @@ function renderBrilliantPhase(stats) {
 function renderAccuracyChart(stats) {
     const box = $('accuracyChart');
     if (!box) return;
-    const series = stats.precision.series || [];
+    const series = (stats.precision.series || []).slice(-20);
     if (series.length < 2) {
         box.innerHTML = '<div class="chart-empty">São necessárias pelo menos duas partidas analisadas com data para ver a evolução da precisão.</div>';
         return;
@@ -341,25 +343,108 @@ function renderAccuracyChart(stats) {
     const height = 220;
     const padX = 42;
     const padY = 24;
-    const x = index => padX + (index / (series.length - 1)) * (width - padX * 2);
+    const x = index => padX + (index / Math.max(series.length - 1, 1)) * (width - padX * 2);
     const y = value => padY + ((100 - value) / 100) * (height - padY * 2);
-    const points = series.map((point, index) => `${x(index).toFixed(1)},${y(point.accuracy).toFixed(1)}`).join(' ');
+    const coordinates = series.map((point, index) => ({
+        x: x(index).toFixed(1),
+        y: y(point.accuracy).toFixed(1),
+    }));
+    const linePath = coordinates.map((point, index) =>
+        `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+    const areaPath = `${linePath} L ${coordinates[coordinates.length - 1].x} ${height - padY}`
+        + ` L ${coordinates[0].x} ${height - padY} Z`;
     const grid = [0, 25, 50, 75, 100].map(value => {
         const gy = y(value);
         return `<line x1="${padX}" y1="${gy}" x2="${width - padX}" y2="${gy}" stroke="var(--border)" stroke-width="1"/>
                 <text x="${padX - 8}" y="${gy + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${value}%</text>`;
     }).join('');
     const dots = series.map((point, index) => `
-        <circle cx="${x(index).toFixed(1)}" cy="${y(point.accuracy).toFixed(1)}" r="3.2" fill="var(--accent)" data-game="${escapeHtml(point.gameId)}">
+        <circle class="chart-point" cx="${coordinates[index].x}" cy="${coordinates[index].y}" r="3.2" fill="var(--accent)" data-game="${escapeHtml(point.gameId)}">
             <title>${escapeHtml(`${formatDate(point.date)} · ${point.accuracy.toFixed(1).replace('.', ',')}% · ${point.opponent}`)}</title>
         </circle>`).join('');
     box.innerHTML = `
-        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Precisão ao longo do tempo">
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Precisão nas últimas partidas analisadas">
+            <defs>
+                <linearGradient id="accuracyAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28"/>
+                    <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/>
+                </linearGradient>
+            </defs>
             ${grid}
-            <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+            <path d="${areaPath}" fill="url(#accuracyAreaGradient)"/>
+            <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
             ${dots}
         </svg>
-        <p class="muted small">${series.length} partida(s) analisada(s) · de ${formatDate(series[0].date)} a ${formatDate(series[series.length - 1].date)}. Clique em um ponto para abrir a partida.</p>`;
+        <p class="muted small">Exibindo ${series.length} das últimas 20 partidas analisadas · de ${formatDate(series[0].date)} a ${formatDate(series[series.length - 1].date)}. Clique em um ponto para abrir a partida.</p>`;
+}
+
+function renderPhaseResultsChart(stats) {
+    const box = $('phaseResultsChart');
+    if (!box) return;
+    if (!stats.identity.name) {
+        box.innerHTML = '<div class="chart-empty">Defina seu nome nas Configurações para ver seus resultados por fase.</div>';
+        return;
+    }
+
+    const phases = [
+        { key: 'opening', label: 'Abertura' },
+        { key: 'middlegame', label: 'Meio-jogo' },
+        { key: 'endgame', label: 'Final' },
+    ];
+    const outcomes = [
+        { key: 'win', label: 'Vitórias', color: 'var(--success)' },
+        { key: 'draw', label: 'Empates', color: 'var(--draw)' },
+        { key: 'loss', label: 'Derrotas', color: 'var(--danger)' },
+    ];
+    const total = phases.reduce((sum, phase) => {
+        const result = stats.phaseResults[phase.key];
+        return sum + result.win + result.draw + result.loss;
+    }, 0);
+    if (!total) {
+        box.innerHTML = '<div class="chart-empty">Analise partidas com Stockfish para ver os resultados em cada fase.</div>';
+        return;
+    }
+
+    const width = 720;
+    const height = 240;
+    const top = 40;
+    const baseline = 198;
+    const max = Math.max(1, ...phases.flatMap(phase => {
+        const result = stats.phaseResults[phase.key];
+        return [result.win, result.draw, result.loss];
+    }));
+    const y = value => baseline - (value / max) * (baseline - top);
+    const ticks = Array.from(new Set([max, Math.round(max / 2), 0]));
+    const grid = ticks.map(value => {
+        const tickY = y(value);
+        return `<line x1="48" y1="${tickY}" x2="${width - 18}" y2="${tickY}" stroke="var(--border)" stroke-width="1"/>
+            <text x="40" y="${tickY + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${value}</text>`;
+    }).join('');
+    const legend = outcomes.map((outcome, index) => {
+        const x = 56 + index * 150;
+        return `<rect x="${x}" y="14" width="9" height="9" rx="2" fill="${outcome.color}"/>
+            <text x="${x + 15}" y="22" font-size="11" fill="var(--text-muted)">${outcome.label}</text>`;
+    }).join('');
+    const centers = [160, 370, 580];
+    const bars = phases.map((phase, phaseIndex) => {
+        const result = stats.phaseResults[phase.key];
+        const start = centers[phaseIndex] - 62;
+        const phaseBars = outcomes.map((outcome, outcomeIndex) => {
+            const value = result[outcome.key];
+            const barHeight = (value / max) * (baseline - top);
+            const x = start + outcomeIndex * 42;
+            const barY = baseline - barHeight;
+            return `<rect x="${x}" y="${barY}" width="32" height="${barHeight}" rx="4" fill="${outcome.color}">
+                <title>${phase.label} · ${outcome.label}: ${value}</title>
+            </rect>`;
+        }).join('');
+        return `${phaseBars}<text x="${centers[phaseIndex]}" y="${baseline + 24}" text-anchor="middle" font-size="12" fill="var(--text-muted)">${phase.label}</text>`;
+    }).join('');
+    box.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vitórias, empates e derrotas nas partidas com lances analisados em cada fase">
+            ${grid}${legend}${bars}
+        </svg>
+        <p class="muted small">Resultado das partidas que tiveram lances analisados em cada fase; uma partida pode aparecer em mais de uma fase.</p>`;
 }
 
 /* ===================== IA: LEITURA E REPERTÓRIO ===================== */

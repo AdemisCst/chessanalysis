@@ -130,6 +130,63 @@ test('só agrega precisão e ACPL de análises SF19 v3/WDL', () => {
     assert.equal('opponentRating' in stats, false);
 });
 
+test('distribui resultados pelas fases com lances analisados e ignora análises inválidas', () => {
+    const games = [
+        game('opening-win', {
+            result: '1-0',
+            analysisSummary: summary({
+                phaseAccuracy: {
+                    opening: { w: 90, b: 80 },
+                    middlegame: { w: null, b: null },
+                    endgame: { w: null, b: null },
+                },
+            }),
+        }),
+        game('middlegame-loss', {
+            result: '0-1',
+            analysisSummary: summary({
+                phaseAccuracy: {
+                    opening: { w: null, b: null },
+                    middlegame: { w: 82, b: 88 },
+                    endgame: { w: null, b: null },
+                },
+            }),
+        }),
+        game('opening-draw', {
+            result: '1/2-1/2',
+            analysisSummary: summary({
+                phaseAccuracy: {
+                    opening: { w: 87, b: 85 },
+                    middlegame: { w: null, b: null },
+                    endgame: { w: null, b: null },
+                },
+            }),
+        }),
+        game('invalid-opening', {
+            analysisSummary: summary({
+                version: 2,
+                phaseAccuracy: {
+                    opening: { w: 99, b: 99 },
+                    middlegame: { w: null, b: null },
+                    endgame: { w: null, b: null },
+                },
+            }),
+        }),
+    ];
+
+    const stats = Stats.compute(games, ['Alex'], { includeRating: false });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(stats.phaseResults.opening)), {
+        games: 2, win: 1, draw: 1, loss: 0,
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(stats.phaseResults.middlegame)), {
+        games: 1, win: 0, draw: 0, loss: 1,
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(stats.phaseResults.endgame)), {
+        games: 0, win: 0, draw: 0, loss: 0,
+    });
+});
+
 test('agrega aberturas por ECO/nome e limita a lista às cinco mais jogadas', () => {
     const games = [
         game('a1'),
@@ -153,7 +210,7 @@ test('agrega aberturas por ECO/nome e limita a lista às cinco mais jogadas', ()
 test('Dashboard tem filtros próprios e apenas uma tabela de aberturas com cada ID', () => {
     for (const id of [
         'statsSourceFilter', 'statsTimeControlFilter', 'statsPeriodFilter',
-        'statsDateFrom', 'statsDateTo', 'openingsTable',
+        'statsDateFrom', 'statsDateTo', 'openingsTable', 'accuracyChart', 'phaseResultsChart',
     ]) {
         assert.equal((html.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1, `ID duplicado ou ausente: ${id}`);
     }
