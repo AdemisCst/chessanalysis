@@ -65,6 +65,30 @@ exatamente o que o Lichess devolve quando a requisição não traz User-Agent
 descritivo, e o erro precisa aparecer como `invalid_response`, não como uma
 importação vazia.
 
+### 2.1. Verificação com PGN real
+
+Além dos testes sintéticos, `js/sources.js` foi carregado em `vm` e alimentado
+com amostras reais das duas APIs.
+
+Lichess (`https://lichess.org/api/games/user/thibault?max=1`):
+
+```text
+PGN real do Lichess: https://lichess.org/game/rBRo2im9
+externalId: {"source":"lichess","externalId":"rBRo2im9","sourceUrl":"https://lichess.org/rBRo2im9"}
+gameSource: lichess
+validateUsername(White): {"ok":true,"username":"thibault"}
+proxy: /api/lichess?username=thibault&max=100
+```
+
+Chess.com (arquivo mensal de 10/2026, 1.174 partidas):
+
+```text
+Link real: https://www.chess.com/game/live/186299800014
+externalId: {"source":"chesscom","externalId":"186299800014","sourceUrl":"https://www.chess.com/game/live/186299800014"}
+gameSource: chesscom
+classifyResponse(200 html): {"status":200,"ok":false,"error":"invalid_response",...}
+```
+
 ---
 
 ## 3. Contrato real das APIs (verificado em 24/11/2026)
@@ -74,14 +98,21 @@ importação vazia.
 | CORS | `Access-Control-Allow-Origin: *` | `access-control-allow-origin: *` |
 | Cache | `ETag`, `Last-Modified`, `max-age=5` | `ETag` por recurso |
 | Usuário inexistente | HTTP 404, corpo vazio | HTTP 404, `{"error":"Not found"}` |
-| Sem User-Agent descritivo | 200 | **404 com HTML** |
-| Com `User-Agent: Acervo64/1.0` | — | 200 + PGN |
+| Sem User-Agent descritivo | **200 com HTML de desafio Cloudflare** (curl padrão) | **404 com HTML** |
+| Com `User-Agent: Acervo64/1.0` | 200 + PGN | 200 + PGN |
 | Identidade no PGN | `[Link "https://www.chess.com/game/daily/82586502"]` | `[GameId "rBRo2im9"]` + `[Site ".../game/rBRo2im9"]` |
 
-Consequência de arquitetura: o navegador não pode definir `User-Agent`, então
-as chamadas de produção passam pelos proxies `api/chesscom.js` e
-`api/lichess.js` (M4.2). O `servidor.ps1` vai espelhar as duas rotas para que o
-desenvolvimento local use o mesmo caminho da produção.
+Consequência de arquitetura: o navegador não pode definir `User-Agent`, e as
+**duas** APIs recusam cliente genérico — o Chess.com chega a devolver **200 com
+HTML** de desafio do Cloudflare, o que passaria por sucesso se ninguém olhasse o
+`Content-Type`. Por isso:
+
+- as chamadas de produção passam pelos proxies `api/chesscom.js` e
+  `api/lichess.js` (M4.2), que assinam a requisição;
+- um 200 com `text/html` é classificado como `invalid_response`, nunca como
+  PGN válido;
+- o `servidor.ps1` vai espelhar as duas rotas para que o desenvolvimento local
+  use o mesmo caminho da produção.
 
 ---
 
@@ -94,6 +125,7 @@ desenvolvimento local use o mesmo caminho da produção.
 | Modal de sincronização e faixa de fontes | **não implementados** (M4.3) |
 | Sincronização real com conta de usuário | **não executada** (M4.4) |
 | 429 real forçado | **não executado** (M4.4, simulação planejada) |
+| 200 com HTML de desafio (Cloudflare) | **reproduzido de verdade** via curl sem UA em 24/11/2026; a suíte cobre a classificação |
 | `js/sources.js` carregado no `index.html` | **não** — entra na M4.3, quando a UI existir |
 
 Nenhum teste desta rodada faz requisição de rede, abre navegador ou grava no
