@@ -343,6 +343,30 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 .search-icon { position: absolute; left: 11px; top: 8px; color: var(--text-muted); font-size: 1.1rem; }
 .search-input { padding-left: 32px; }
 .library-toolbar .select { width: auto; flex: 0 0 auto; min-width: 175px; }
+.sync-sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin: 0 0 12px;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+.sync-sources.hidden { display: none; }
+.sync-sources a { color: var(--accent); font-weight: 600; }
+.sync-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+.sync-tab[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+.sync-form { display: grid; gap: 14px; }
+.sync-form label { display: grid; gap: 6px; color: var(--text-muted); font-size: 0.82rem; }
+.sync-form .input, .sync-form .select { width: 100%; }
+.sync-perf-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sync-perf-option { display: flex !important; align-items: center; gap: 7px !important; color: var(--text) !important; }
+.sync-perf-option input { accent-color: var(--accent); }
+.sync-note { color: var(--text-muted); font-size: 0.76rem; margin: 0; }
+.sync-summary { font-size: 1rem; font-weight: 650; color: var(--text); }
 
 .chips:empty { display: none; }
 .import-report {

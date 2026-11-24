@@ -88,6 +88,7 @@
                     <p class="muted" id="librarySubtitle">Importe arquivos PGN para começar.</p>
                 </div>
                 <div class="view-head-actions">
+                    <button id="syncBtn" class="btn btn-primary">⇅ Sincronizar</button>
                     <button id="queueAllBtn" class="btn btn-secondary">＋ Adicionar pendentes à fila</button>
                     <button id="loadSamplesBtn" class="btn btn-ghost">Carregar exemplos</button>
                     <button id="clearFiltersBtn" class="btn btn-ghost">Limpar filtros</button>
@@ -115,6 +116,7 @@
                 </select>
             </div>
 
+            <div id="syncSources" class="sync-sources hidden" aria-live="polite"></div>
             <div id="filterChips" class="chips"></div>
             <div id="importReport" class="import-report hidden"></div>
             <div id="bulkBar" class="bulk-bar hidden" role="region" aria-label="Ações para partidas selecionadas">
@@ -155,6 +157,8 @@
                     <p>Importe seus arquivos PGN ou carregue os exemplos para explorar o aplicativo.</p>
                     <div class="empty-actions">
                         <button class="btn btn-primary" id="emptyImportBtn">Importar PGN</button>
+                        <button class="btn btn-secondary" id="emptyChesscomSyncBtn">Importar do Chess.com</button>
+                        <button class="btn btn-secondary" id="emptyLichessSyncBtn">Importar do Lichess</button>
                         <button class="btn btn-secondary" id="emptySamplesBtn">Carregar exemplos</button>
                     </div>
                 </div>
@@ -570,6 +574,7 @@
 <!-- Bibliotecas locais (sem internet) -->
 <script src="vendor/chess.js" defer></script>
 <script src="js/pgn.js" defer></script>
+<script src="js/sources.js" defer></script>
 <script src="js/samples.js" defer></script>
 <script src="js/storage.js" defer></script>
 <script src="js/queue.js" defer></script>
@@ -587,5 +592,6 @@
 <script src="js/analytics.js" defer></script>
 <script src="js/settings.js" defer></script>
 <script src="js/queue-ui.js" defer></script>
+<script src="js/sync.js" defer></script>
 </body>
 </html>
