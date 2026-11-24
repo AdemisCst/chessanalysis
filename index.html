@@ -29,17 +29,25 @@
 <!-- ===================== 01 - CABEÇALHO E NAVEGAÇÃO ===================== -->
 <header class="app-header">
     <div class="brand">
-        <span class="brand-piece">♞</span>
+        <span class="brand-piece">
+            <svg id="appLogo" viewBox="0 0 40 40" aria-hidden="true">
+                <text x="20" y="30" text-anchor="middle" font-size="32" fill="currentColor">♞</text>
+            </svg>
+        </span>
         <div class="brand-text">
             <h1>Chess-Analysis</h1>
         </div>
     </div>
 
     <div class="header-actions">
-        <button id="importBtn" class="btn btn-primary">＋ Importar PGN</button>
-        <button id="exportBtn" class="btn btn-secondary">⇩ Exportar</button>
-        <button id="aiStatusChip" class="status-chip offline" title="Status do assistente de IA">
-            <span class="dot" aria-hidden="true"></span><span id="aiStatusText">Treinador IA: verificando…</span>
+        <button id="aiStatusChip" class="btn btn-icon ai-status-button offline" title="Status do assistente de IA" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v3"/>
+                <circle cx="12" cy="2.5" r="1"/>
+                <rect x="4" y="7" width="16" height="13" rx="3"/>
+                <path d="M2 12h2m16 0h2M8 11h.01M16 11h.01M9 16h6"/>
+            </svg>
+            <span id="aiStatusText" class="sr-only">Treinador IA: verificando…</span>
         </button>
         <button id="themeBtn" class="btn btn-icon" title="Alternar tema claro/escuro">🌙</button>
     </div>
@@ -88,7 +96,9 @@
                     <p class="muted" id="librarySubtitle">Importe arquivos PGN para começar.</p>
                 </div>
                 <div class="view-head-actions">
+                    <button id="importBtn" class="btn btn-primary">＋ Importar PGN</button>
                     <button id="syncBtn" class="btn btn-primary">⇅ Sincronizar</button>
+                    <button id="exportBtn" class="btn btn-secondary">⇩ Exportar</button>
                     <button id="queueAllBtn" class="btn btn-secondary">＋ Adicionar pendentes à fila</button>
                     <button id="loadSamplesBtn" class="btn btn-ghost">Carregar exemplos</button>
                     <button id="clearFiltersBtn" class="btn btn-ghost">Limpar filtros</button>

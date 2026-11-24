@@ -29,6 +29,21 @@ test('navegação principal tem as seis áreas oficiais', async () => {
     assert.deepEqual(views, ['library', 'analyses', 'game', 'stats', 'ai', 'settings']);
 });
 
+test('importação e exportação ficam na Biblioteca com os IDs usados pelos handlers', async () => {
+    const html = await read('index.html');
+    const header = html.slice(html.indexOf('<header class="app-header">'), html.indexOf('</header>'));
+    const libraryStart = html.indexOf('<section id="view-library"');
+    const library = html.slice(libraryStart, html.indexOf('</section>', libraryStart));
+    const handlers = await read('js/library.js');
+
+    for (const id of ['importBtn', 'exportBtn']) {
+        assert.equal((html.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1, `ID duplicado ou ausente: ${id}`);
+        assert.equal(header.includes(`id="${id}"`), false, `#${id} ainda está no cabeçalho`);
+        assert.ok(library.includes(`id="${id}"`), `#${id} não está na Biblioteca`);
+        assert.ok(handlers.includes(`$('${id}')`), `handler de #${id} ausente`);
+    }
+});
+
 test('Central de Análises tem view, controles e módulo ligado', async () => {
     const html = await read('index.html');
     assert.ok(html.includes('id="view-analyses"'));
