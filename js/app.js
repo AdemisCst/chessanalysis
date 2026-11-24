@@ -568,6 +568,38 @@ async function migrateAnalysisData(force) {
     return { updated, skipped: false };
 }
 
+async function migrateGameSources() {
+    const marker = 'acervo64_source_migration_done';
+    if (localStorage.getItem(marker) === 'true') return { updated: 0, skipped: true };
+
+    const games = await DB.getAll('games');
+    const updates = [];
+    games.forEach(game => {
+        if (!game || (game.source != null && game.source !== '')) return;
+        const headers = game.headers || {};
+        const sourceHeaders = Object.keys(headers)
+            .filter(name => name.toLowerCase() === 'site' || name.toLowerCase() === 'link')
+            .map(name => String(headers[name] == null ? '' : headers[name]))
+            .join(' ')
+            .toLowerCase();
+        const source = sourceHeaders.includes('chess.com')
+            ? 'chesscom'
+            : sourceHeaders.includes('lichess.org') ? 'lichess' : 'manual';
+        updates.push(Object.assign({}, game, { source }));
+    });
+
+    const batchSize = 200;
+    for (let offset = 0; offset < updates.length; offset += batchSize) {
+        await DB.bulkPut('games', updates.slice(offset, offset + batchSize));
+        if (offset + batchSize < updates.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    localStorage.setItem(marker, 'true');
+    return { updated: updates.length, skipped: false };
+}
+
 /* ===================== INICIALIZAÇÃO ===================== */
 function bindGlobalEvents() {
     $$('.rail-btn').forEach(button => {
@@ -631,6 +663,12 @@ async function init() {
 
     try {
         await DB.open();
+        try {
+            await migrateGameSources();
+        } catch (error) {
+            console.error('Falha ao migrar a origem das partidas.', error);
+            toast('Não foi possível atualizar a origem das partidas. A migração será tentada novamente na próxima abertura.', 'warning');
+        }
         await Openings.load().catch(() => []);
         await reloadGames();
         // Primeiro carimba a proveniência; depois reaproveita análises antigas.
