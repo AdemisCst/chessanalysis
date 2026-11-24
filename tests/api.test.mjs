@@ -120,3 +120,111 @@ test('/api/chat recusa configuração incompleta antes de gastar cota', async ()
         process.env = original;
     }
 });
+
+test('/api/chesscom permite só username/month e escolhe o endpoint adequado', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+        calls.push({ url: String(url), options });
+        return new Response('pgn', {
+            status: 200,
+            headers: { 'Content-Type': 'application/x-chess-pgn; charset=utf-8' },
+        });
+    };
+    try {
+        const { default: handler } = await import('../api/chesscom.js');
+        const response = await handler(new Request(
+            'https://example.com/api/chesscom?username=Hikaru&month=2024-02&ignored=evil'
+        ));
+        assert.equal(response.status, 200);
+        assert.equal(await response.text(), 'pgn');
+        assert.equal(
+            calls[0].url,
+            'https://api.chess.com/pub/player/Hikaru/games/2024/02/pgn'
+        );
+        assert.equal(calls[0].options.headers['User-Agent'], 'Acervo64/1.0 (+https://chessanalysis-murex.vercel.app)');
+
+        await handler(new Request('https://example.com/api/chesscom?username=Hikaru&unknown=1'));
+        assert.equal(
+            calls[1].url,
+            'https://api.chess.com/pub/player/Hikaru/games/archives'
+        );
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('/api/lichess limita max e descarta parâmetros não permitidos', async () => {
+    const originalFetch = globalThis.fetch;
+    let calledUrl;
+    globalThis.fetch = async url => {
+        calledUrl = String(url);
+        return new Response('pgn', {
+            status: 200,
+            headers: { 'Content-Type': 'application/x-chess-pgn' },
+        });
+    };
+    try {
+        const { default: handler } = await import('../api/lichess.js');
+        const response = await handler(new Request(
+            'https://example.com/api/lichess?username=thibault&max=500&since=123&until=456&evil=1'
+        ));
+        assert.equal(response.status, 200);
+        const url = new URL(calledUrl);
+        assert.equal(url.origin, 'https://lichess.org');
+        assert.equal(url.pathname, '/api/games/user/thibault');
+        assert.equal(url.searchParams.get('max'), '100');
+        assert.equal(url.searchParams.get('since'), '123');
+        assert.equal(url.searchParams.get('until'), '456');
+        assert.equal(url.searchParams.has('evil'), false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('proxy upstream rejeita HTML e traduz erros de origem para JSON', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalSetTimeout = globalThis.setTimeout;
+    const { fetchUpstream } = await import('../api/_upstream.js');
+    try {
+        globalThis.fetch = async () => new Response('<html>blocked</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+        });
+        const blocked = await fetchUpstream('https://upstream.example', 'application/json');
+        assert.equal(blocked.status, 502);
+        assert.equal((await blocked.json()).code, 'blocked');
+
+        for (const [status, expected, proxyStatus] of [
+            [404, 'not_found', 404],
+            [429, 'rate_limited', 429],
+            [503, 'upstream', 502],
+        ]) {
+            globalThis.fetch = async () => new Response('', {
+                status,
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const response = await fetchUpstream('https://upstream.example', 'application/json');
+            assert.equal(response.status, proxyStatus);
+            assert.equal((await response.json()).code, expected);
+        }
+
+        globalThis.setTimeout = (callback, delay) => {
+            assert.equal(delay, 15000);
+            callback();
+            return 1;
+        };
+        globalThis.fetch = async (url, options) => {
+            assert.equal(options.signal.aborted, true);
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            throw error;
+        };
+        const timeout = await fetchUpstream('https://upstream.example', 'application/json');
+        assert.equal(timeout.status, 504);
+        assert.equal((await timeout.json()).code, 'timeout');
+    } finally {
+        globalThis.fetch = originalFetch;
+        globalThis.setTimeout = originalSetTimeout;
+    }
+});

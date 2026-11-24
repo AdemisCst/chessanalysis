@@ -45,10 +45,109 @@ function Send-Response {
               "Content-Length: $($Body.Length)`r`n" +
               "Cache-Control: no-store`r`n" +
               "Access-Control-Allow-Origin: *`r`n" +
+              "Access-Control-Allow-Methods: GET,OPTIONS`r`n" +
+              "Access-Control-Allow-Headers: Content-Type`r`n" +
+              "Access-Control-Max-Age: 86400`r`n" +
               "Connection: close`r`n`r`n"
     $headerBytes = [System.Text.Encoding]::ASCII.GetBytes($header)
     $Stream.Write($headerBytes, 0, $headerBytes.Length)
     if ($Body.Length -gt 0) { $Stream.Write($Body, 0, $Body.Length) }
+}
+
+function Send-ApiJson {
+    param(
+        [System.Net.Sockets.NetworkStream]$Stream,
+        [int]$StatusCode,
+        [string]$StatusText,
+        [hashtable]$Payload
+    )
+    $json = ConvertTo-Json -InputObject $Payload -Compress -Depth 5
+    Send-Response -Stream $Stream -StatusCode $StatusCode -StatusText $StatusText `
+        -Body ([System.Text.Encoding]::UTF8.GetBytes($json)) `
+        -ContentType 'application/json; charset=utf-8'
+}
+
+function Invoke-ApiUpstream {
+    param(
+        [System.Net.Sockets.NetworkStream]$Stream,
+        [string]$Uri,
+        [string]$Accept
+    )
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object System.Net.Http.HttpClient
+    $request = $null
+    $response = $null
+    $client.Timeout = [TimeSpan]::FromSeconds(15)
+
+    try {
+        $request = New-Object System.Net.Http.HttpRequestMessage(
+            [System.Net.Http.HttpMethod]::Get, $Uri
+        )
+        $null = $request.Headers.TryAddWithoutValidation(
+            'User-Agent', 'Acervo64/1.0 (+https://chessanalysis-murex.vercel.app)'
+        )
+        $request.Headers.Accept.ParseAdd($Accept)
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        $status = [int]$response.StatusCode
+        $contentType = ''
+        if ($response.Content.Headers.ContentType) {
+            $contentType = $response.Content.Headers.ContentType.MediaType
+        }
+
+        if ($contentType -eq 'text/html') {
+            Send-ApiJson -Stream $Stream -StatusCode 502 -StatusText 'Bad Gateway' -Payload @{
+                error = 'A API de origem retornou HTML em vez de dados. A requisição pode ter sido bloqueada.'
+                code = 'blocked'
+            }
+            return
+        }
+        if (-not $response.IsSuccessStatusCode) {
+            if ($status -eq 404) {
+                Send-ApiJson -Stream $Stream -StatusCode 404 -StatusText 'Not Found' -Payload @{
+                    error = 'Usuário não encontrado na fonte.'
+                    code = 'not_found'
+                }
+            } elseif ($status -eq 429) {
+                Send-ApiJson -Stream $Stream -StatusCode 429 -StatusText 'Too Many Requests' -Payload @{
+                    error = 'A API pediu uma pausa. Aguarde e tente novamente.'
+                    code = 'rate_limited'
+                }
+            } elseif ($status -ge 500) {
+                Send-ApiJson -Stream $Stream -StatusCode 502 -StatusText 'Bad Gateway' -Payload @{
+                    error = 'A API de origem falhou. Tente novamente em instantes.'
+                    code = 'upstream'
+                    upstreamStatus = $status
+                }
+            } else {
+                Send-ApiJson -Stream $Stream -StatusCode $status -StatusText 'Upstream Error' -Payload @{
+                    error = 'A API de origem recusou a requisição.'
+                    code = 'blocked'
+                }
+            }
+            return
+        }
+
+        if ($contentType) { $contentType = $response.Content.Headers.ContentType.ToString() }
+        else { $contentType = 'application/octet-stream' }
+        $body = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        Send-Response -Stream $Stream -StatusCode 200 -StatusText 'OK' -Body $body -ContentType $contentType
+    } catch {
+        if ($_.Exception -is [System.OperationCanceledException]) {
+            Send-ApiJson -Stream $Stream -StatusCode 504 -StatusText 'Gateway Timeout' -Payload @{
+                error = 'A consulta demorou demais e foi interrompida.'
+                code = 'timeout'
+            }
+        } else {
+            Send-ApiJson -Stream $Stream -StatusCode 502 -StatusText 'Bad Gateway' -Payload @{
+                error = 'Não foi possível falar com o servidor de origem.'
+                code = 'network'
+            }
+        }
+    } finally {
+        if ($response) { $response.Dispose() }
+        if ($request) { $request.Dispose() }
+        $client.Dispose()
+    }
 }
 
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $Port)
@@ -92,6 +191,110 @@ while ($true) {
 
         $method = $requestParts[0]
         $target = $requestParts[1]
+
+        $requestUri = [System.Uri]::new("http://localhost$target")
+        $apiPath = $requestUri.AbsolutePath
+        if ($apiPath -eq '/api/chesscom' -or $apiPath -eq '/api/lichess') {
+            if ($method -eq 'OPTIONS') {
+                Send-Response -Stream $stream -StatusCode 204 -StatusText 'No Content' `
+                    -Body ([byte[]]@()) -ContentType 'application/json; charset=utf-8'
+                continue
+            }
+            if ($method -ne 'GET') {
+                Send-ApiJson -Stream $stream -StatusCode 405 -StatusText 'Method Not Allowed' -Payload @{
+                    error = 'Use GET.'
+                }
+                continue
+            }
+
+            $queryParams = @{}
+            foreach ($pair in ($requestUri.Query.TrimStart('?') -split '&')) {
+                if (-not $pair) { continue }
+                $parts = $pair -split '=', 2
+                $key = [System.Uri]::UnescapeDataString($parts[0].Replace('+', ' '))
+                $value = ''
+                if ($parts.Length -gt 1) {
+                    $value = [System.Uri]::UnescapeDataString($parts[1].Replace('+', ' '))
+                }
+                $queryParams[$key] = $value
+            }
+
+            $username = [string]$queryParams['username']
+            if ($apiPath -eq '/api/chesscom') {
+                if ($username -notmatch '^[a-z0-9][a-z0-9_-]{2,24}$') {
+                    Send-ApiJson -Stream $stream -StatusCode 400 -StatusText 'Bad Request' -Payload @{
+                        error = 'Nome de usuário inválido para o Chess.com.'
+                        code = 'invalid_username'
+                    }
+                    continue
+                }
+                $encodedUsername = [System.Uri]::EscapeDataString($username)
+                $month = [string]$queryParams['month']
+                $accept = 'application/json'
+                $upstreamUrl = "https://api.chess.com/pub/player/$encodedUsername/games/archives"
+                if ($queryParams.ContainsKey('month')) {
+                    if ($month -notmatch '^(\d{4})-(0[1-9]|1[0-2])$') {
+                        Send-ApiJson -Stream $stream -StatusCode 400 -StatusText 'Bad Request' -Payload @{
+                            error = 'Mês inválido. Use o formato YYYY-MM.'
+                            code = 'invalid_month'
+                        }
+                        continue
+                    }
+                    $upstreamUrl = "https://api.chess.com/pub/player/$encodedUsername/games/$($Matches[1])/$($Matches[2])/pgn"
+                    $accept = 'application/x-chess-pgn'
+                }
+            } else {
+                if ($username -notmatch '^[a-z0-9][a-z0-9_-]{1,29}$') {
+                    Send-ApiJson -Stream $stream -StatusCode 400 -StatusText 'Bad Request' -Payload @{
+                        error = 'Nome de usuário inválido para o Lichess.'
+                        code = 'invalid_username'
+                    }
+                    continue
+                }
+                $encodedUsername = [System.Uri]::EscapeDataString($username)
+                $query = New-Object System.Collections.Generic.List[string]
+                if ($queryParams.ContainsKey('max')) {
+                    $maxValue = 100.0
+                    $parsedMax = 0.0
+                    if ([double]::TryParse(
+                        [string]$queryParams['max'],
+                        [System.Globalization.NumberStyles]::Float,
+                        [System.Globalization.CultureInfo]::InvariantCulture,
+                        [ref]$parsedMax
+                    )) {
+                        $maxValue = [Math]::Min(100, [Math]::Max(1, [Math]::Round($parsedMax)))
+                    }
+                    $query.Add("max=$([int]$maxValue)")
+                }
+                $invalidPeriod = $false
+                foreach ($name in @('since', 'until')) {
+                    if (-not $queryParams.ContainsKey($name)) { continue }
+                    $timestamp = 0L
+                    if ($queryParams[$name] -notmatch '^\d+$' -or
+                        -not [long]::TryParse([string]$queryParams[$name], [ref]$timestamp) -or
+                        $timestamp -le 0) {
+                        $invalidPeriod = $true
+                        break
+                    }
+                    $query.Add("${name}=$timestamp")
+                }
+                if ($invalidPeriod) {
+                    Send-ApiJson -Stream $stream -StatusCode 400 -StatusText 'Bad Request' -Payload @{
+                        error = 'Período inválido.'
+                        code = 'invalid_period'
+                    }
+                    continue
+                }
+                $suffix = ''
+                if ($query.Count -gt 0) { $suffix = '?' + [string]::Join('&', $query) }
+                $upstreamUrl = "https://lichess.org/api/games/user/$encodedUsername$suffix"
+                $accept = 'application/x-chess-pgn'
+            }
+
+            Invoke-ApiUpstream -Stream $stream -Uri $upstreamUrl -Accept $accept
+            continue
+        }
+
         if ($method -ne 'GET' -and $method -ne 'HEAD') {
             Send-Response -Stream $stream -StatusCode 405 -StatusText 'Method Not Allowed' -Body ([System.Text.Encoding]::UTF8.GetBytes('Method not allowed')) -ContentType 'text/plain'
             continue
