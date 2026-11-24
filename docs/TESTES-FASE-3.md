@@ -8,6 +8,10 @@ servidor local `127.0.0.1:8765`
 
 > Todos os números abaixo vieram de execução real nesta máquina. Nada foi
 > estimado. O que não foi executado está marcado como **não executado**.
+>
+> **Nota (24/11/2026):** os 81 testes abaixo são o fechamento da Fase 3. A
+> Fase 4 acrescentou `tests/sources.test.mjs` (20 testes), levando a suíte
+> global a 101 — ver `docs/TESTES-FASE-4.md`.
 
 ---
 
