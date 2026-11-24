@@ -37,6 +37,55 @@ test('sincronização monta consultas mensais e período Lichess limitado a 100'
     assert.equal(url.searchParams.get('until'), String(now.getTime()));
 });
 
+test('todo o histórico usa archives no Chess.com e omite max no Lichess', () => {
+    const chesscom = Sync.buildRequests('chesscom', 'magnus', 'all');
+    assert.equal(chesscom.length, 1);
+    assert.equal(chesscom[0].type, 'archives');
+    assert.equal(chesscom[0].url, '/api/chesscom?username=magnus&format=archives');
+
+    const lichess = Sync.buildRequests('lichess', 'thibault', 'all');
+    const url = new URL(lichess[0].url, 'https://acervo.example');
+    assert.equal(url.pathname, '/api/lichess');
+    assert.equal(url.searchParams.get('username'), 'thibault');
+    assert.equal(url.searchParams.has('max'), false);
+    assert.equal(url.searchParams.has('since'), false);
+    assert.equal(url.searchParams.has('until'), false);
+});
+
+test('archives do Chess.com viram consultas mensais válidas e sem duplicatas', () => {
+    const requests = Sync.requestsFromArchives('magnus', {
+        archives: [
+            'https://api.chess.com/pub/player/magnus/games/2020/01',
+            'https://api.chess.com/pub/player/magnus/games/2020/02',
+            'https://api.chess.com/pub/player/magnus/games/2020/02',
+        ],
+    });
+    assert.deepEqual(Array.from(requests, request => request.month), ['2020-01', '2020-02']);
+    assert.deepEqual(Array.from(requests, request => request.url), [
+        '/api/chesscom?username=magnus&month=2020-01',
+        '/api/chesscom?username=magnus&month=2020-02',
+    ]);
+    assert.throws(() => Sync.monthsFromArchives({
+        archives: ['https://evil.example/games/2020/03'],
+    }), /mês inválido/);
+});
+
+test('splitPgnBlocks reagrupa chunks Lichess e só emite partidas completas', () => {
+    const firstGame = '[Event "One"]\r\n[Site "https://lichess.org/abc12345"]\r\n\r\n1. e4 e5 1-0';
+    const secondGame = '[Event "Two"]\n[Site "https://lichess.org/def67890"]\n\n1. d4 d5 0-1';
+    const fullPgn = `${firstGame}\n\n${secondGame}`;
+    const boundary = fullPgn.indexOf('[Event "Two"]');
+    const first = Sync.splitPgnBlocks(fullPgn.slice(0, boundary + 5), false);
+    assert.deepEqual(Array.from(first.blocks), []);
+    const second = Sync.splitPgnBlocks(first.remainder + fullPgn.slice(boundary + 5, boundary + 12), false);
+    assert.deepEqual(Array.from(second.blocks), []);
+    const third = Sync.splitPgnBlocks(second.remainder + fullPgn.slice(boundary + 12), false);
+    assert.deepEqual(Array.from(third.blocks), [firstGame.replace(/\r\n/g, '\n')]);
+    const last = Sync.splitPgnBlocks(third.remainder, true);
+    assert.deepEqual(Array.from(last.blocks), [secondGame]);
+    assert.equal(last.remainder, '');
+});
+
 test('controles de tempo PGN são classificados e filtrados localmente', () => {
     assert.equal(Sync.classifyTimeControl('15+0'), 'ultraBullet');
     assert.equal(Sync.classifyTimeControl('60+0'), 'bullet');

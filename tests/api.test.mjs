@@ -182,6 +182,29 @@ test('/api/lichess limita max e descarta parâmetros não permitidos', async () 
     }
 });
 
+test('/api/lichess preserva max omitido para a exportação completa', async () => {
+    const originalFetch = globalThis.fetch;
+    let calledUrl;
+    globalThis.fetch = async url => {
+        calledUrl = String(url);
+        return new Response('pgn', {
+            headers: { 'Content-Type': 'application/x-chess-pgn' },
+        });
+    };
+    try {
+        const { default: handler } = await import('../api/lichess.js');
+        const response = await handler(new Request(
+            'https://example.com/api/lichess?username=thibault'
+        ));
+        assert.equal(response.status, 200);
+        const url = new URL(calledUrl);
+        assert.equal(url.pathname, '/api/games/user/thibault');
+        assert.equal(url.searchParams.has('max'), false);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('proxy upstream rejeita HTML e traduz erros de origem para JSON', async () => {
     const originalFetch = globalThis.fetch;
     const originalSetTimeout = globalThis.setTimeout;
@@ -226,5 +249,73 @@ test('proxy upstream rejeita HTML e traduz erros de origem para JSON', async () 
     } finally {
         globalThis.fetch = originalFetch;
         globalThis.setTimeout = originalSetTimeout;
+    }
+});
+
+test('proxy upstream encaminha o PGN em stream sem esperar o corpo inteiro', async () => {
+    const originalFetch = globalThis.fetch;
+    const { fetchUpstream } = await import('../api/_upstream.js');
+    let finishBody;
+    globalThis.fetch = async () => new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode('primeira parte'));
+            finishBody = () => {
+                controller.enqueue(new TextEncoder().encode(' segunda parte'));
+                controller.close();
+            };
+        },
+    }), {
+        headers: { 'Content-Type': 'application/x-chess-pgn' },
+    });
+    try {
+        const response = await fetchUpstream('https://upstream.example', 'application/x-chess-pgn');
+        const reader = response.body.getReader();
+        const first = await reader.read();
+        assert.equal(new TextDecoder().decode(first.value), 'primeira parte');
+        finishBody();
+        const second = await reader.read();
+        assert.equal(new TextDecoder().decode(second.value), ' segunda parte');
+        assert.equal((await reader.read()).done, true);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('proxy upstream cancela o stream após 15 segundos sem atividade', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const timers = [];
+    globalThis.setTimeout = (callback, delay) => {
+        const timer = { callback, delay, cleared: false };
+        timers.push(timer);
+        return timer;
+    };
+    globalThis.clearTimeout = timer => {
+        if (timer) timer.cleared = true;
+    };
+    globalThis.fetch = async () => new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode('primeira parte'));
+        },
+    }), {
+        headers: { 'Content-Type': 'application/x-chess-pgn' },
+    });
+    try {
+        const { fetchUpstream } = await import('../api/_upstream.js');
+        const response = await fetchUpstream('https://upstream.example', 'application/x-chess-pgn');
+        const reader = response.body.getReader();
+        await reader.read();
+        const pending = reader.read();
+        await new Promise(resolve => setImmediate(resolve));
+        const idleTimer = timers.filter(timer => !timer.cleared).pop();
+        assert.ok(idleTimer);
+        assert.equal(idleTimer.delay, 15000);
+        idleTimer.callback();
+        await assert.rejects(pending, /inativa por tempo demais/);
+    } finally {
+        globalThis.fetch = originalFetch;
+        globalThis.setTimeout = originalSetTimeout;
+        globalThis.clearTimeout = originalClearTimeout;
     }
 });

@@ -133,6 +133,37 @@ const DB = (() => {
         });
     }
 
+    async function saveBatch(games, data) {
+        if (!Array.isArray(games) || !Array.isArray(data) || games.length !== data.length) {
+            throw new Error('Lote de partidas inválido.');
+        }
+        if (!games.length) return true;
+        for (let index = 0; index < games.length; index++) {
+            if (!games[index] || !data[index] || games[index].id !== data[index].id) {
+                throw new Error('Os metadados e os dados da partida não correspondem.');
+            }
+        }
+        const db = await open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(['games', 'data'], 'readwrite');
+            const gamesStore = tx.objectStore('games');
+            const dataStore = tx.objectStore('data');
+            try {
+                for (let index = 0; index < games.length; index++) {
+                    gamesStore.put(games[index]);
+                    dataStore.put(data[index]);
+                }
+            } catch (error) {
+                tx.abort();
+                reject(error);
+                return;
+            }
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error || new Error('Falha ao salvar o lote de partidas.'));
+            tx.onabort = () => reject(tx.error || new Error('Gravação do lote de partidas cancelada.'));
+        });
+    }
+
     async function getByIndex(name, indexName, value) {
         const os = await store(name);
         return ask(os.index(indexName).getAll(value));
@@ -681,7 +712,7 @@ const DB = (() => {
     async function saveMeta(key, value) { return put('meta', { key, value, createdAt: Date.now() }); }
 
     return {
-        open, get, getAll, put, del, clear, count, bulkPut, getByIndex, deleteGame, clearAll,
+        open, get, getAll, put, del, clear, count, bulkPut, saveBatch, getByIndex, deleteGame, clearAll,
         getAnalysis, getAnalyses, saveAnalysis, getAI, saveAI, getMeta, saveMeta, analysisKey,
         queueKey, enqueueAnalyses, getQueue, getQueueItem, updateQueueItem, removeQueueItem,
         clearQueue, saveCheckpoint, getCheckpoint, deleteCheckpoint, clearCheckpointsForGame,

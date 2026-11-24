@@ -93,6 +93,20 @@ function dataOf(game) {
     return { id: game.id, startFen: game.startFen, moves: game.moves, pgn: game.pgn };
 }
 
+async function saveSourceBatch(games, source) {
+    if (source !== 'chesscom' && source !== 'lichess') {
+        throw new Error('Fonte de partidas desconhecida.');
+    }
+    const prepared = games.map(game => {
+        game.source = source;
+        Openings.enrichGame(game);
+        if (window.Tags) Tags.apply(game, null, game.moves);
+        return game;
+    });
+    await DB.saveBatch(prepared.map(metaOf), prepared.map(dataOf));
+    return prepared;
+}
+
 function updateImportProgress(percent, status, count) {
     const fill = $('importFill');
     if (fill) fill.style.width = Math.max(0, Math.min(100, percent)) + '%';
