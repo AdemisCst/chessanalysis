@@ -123,6 +123,7 @@ function toast(message, type) {
 
 /* ===================== MODAL ===================== */
 let modalState = { closable: true, onClose: null, previousFocus: null };
+let modalCloseHandler = null;
 
 /** Elementos focáveis visíveis dentro do modal, na ordem do DOM. */
 function modalFocusables() {
@@ -132,7 +133,12 @@ function modalFocusables() {
 
 function openModal(options) {
     const opts = options || {};
-    const wasHidden = $('modal').classList.contains('hidden');
+    const modal = $('modal');
+    const wasHidden = modal.classList.contains('hidden') || modal.classList.contains('is-closing');
+    if (modalCloseHandler) {
+        modal.removeEventListener('animationend', modalCloseHandler);
+        modalCloseHandler = null;
+    }
     $('modalTitle').textContent = opts.title || '';
     $('modalBody').innerHTML = opts.body || '';
     $('modalFooter').innerHTML = opts.footer || '';
@@ -142,7 +148,9 @@ function openModal(options) {
         onClose: opts.onClose || null,
         previousFocus: wasHidden ? document.activeElement : modalState.previousFocus,
     };
-    $('modal').classList.remove('hidden');
+    modal.inert = false;
+    modal.setAttribute('aria-hidden', 'false');
+    modal.classList.remove('hidden', 'is-closing');
     // Leva o foco para o primeiro controle útil, sem roubar o foco de quem
     // abriu um teclado virtual em um campo específico.
     setTimeout(() => {
@@ -154,11 +162,23 @@ function openModal(options) {
 }
 
 function closeModal() {
-    if ($('modal').classList.contains('hidden')) return;
-    $('modal').classList.add('hidden');
+    const modal = $('modal');
+    if (modal.classList.contains('hidden') || modal.classList.contains('is-closing')) return;
     const callback = modalState.onClose;
     const previous = modalState.previousFocus;
     modalState = { closable: true, onClose: null, previousFocus: null };
+    modal.inert = true;
+    modal.setAttribute('aria-hidden', 'true');
+    modal.classList.add('is-closing');
+    modalCloseHandler = event => {
+        if (event.target !== modal || event.animationName !== 'modalOut') return;
+        modal.removeEventListener('animationend', modalCloseHandler);
+        modalCloseHandler = null;
+        if (!modal.classList.contains('is-closing')) return;
+        modal.classList.remove('is-closing');
+        modal.classList.add('hidden');
+    };
+    modal.addEventListener('animationend', modalCloseHandler);
     if (previous && typeof previous.focus === 'function') previous.focus();
     if (callback) callback();
 }
