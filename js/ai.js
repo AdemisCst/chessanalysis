@@ -375,15 +375,18 @@ Regras obrigatórias:
         if (!counts) return 'sem anotações';
         const labels = window.Engine && Engine.ANNOTATIONS
             ? Engine.ANNOTATION_ORDER
-            : ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'];
+            : ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'missed', 'blunder'];
         const fallback = {
             brilliant: { symbol: '!!', label: 'brilhante' },
+            great: { symbol: '!', label: 'grande lance' },
             excellent: { symbol: '!', label: 'excelente' },
             best: { symbol: '★', label: 'melhor' },
-            good: { symbol: '👍', label: 'ótimo' },
+            good: { symbol: '✓', label: 'bom' },
+            book: { symbol: '📖', label: 'livro' },
+            inaccuracy: { symbol: '?!', label: 'imprecisão' },
             mistake: { symbol: '?', label: 'erro' },
             missed: { symbol: '×', label: 'chance perdida' },
-            blunder: { symbol: '??', label: 'capivarada' },
+            blunder: { symbol: '??', label: 'erro grosseiro' },
         };
         const parts = labels
             .filter(key => Number(counts[key]) > 0)
@@ -420,7 +423,7 @@ Regras obrigatórias:
                     const key = moment.annotation || (moment.cls === 'blunder' ? 'blunder' : 'mistake');
                     const info = window.Engine && Engine.annotationInfo
                         ? Engine.annotationInfo(key)
-                        : { symbol: key === 'blunder' ? '??' : '?', label: key === 'blunder' ? 'Capivarada' : 'Erro' };
+                        : { symbol: key === 'blunder' ? '??' : '?', label: key === 'blunder' ? 'Erro Grosseiro' : 'Erro' };
                     lines.push(`- ${Math.ceil(moment.ply / 2)}${moment.color === 'w' ? '.' : '...'} ${moment.san} (${moment.color === 'w' ? 'brancas' : 'pretas'}), ${info.symbol} ${info.label}${moment.bestSan ? ', melhor era ' + moment.bestSan : ''}`);
                 });
             }
@@ -610,10 +613,10 @@ Um parágrafo curto com o retrato geral (resultados, precisão, rating dos adver
 3 a 5 tópicos iniciados por "-". Cada um deve citar um número dos dados.
 
 ## Pontos fracos
-3 a 5 tópicos iniciados por "-". Priorize os padrões que mais custam pontos: capivaradas (??), erros (?), chances perdidas (×) e fases com pior precisão.
+3 a 5 tópicos iniciados por "-". Priorize os padrões que mais custam pontos: erros grosseiros (??), erros (?), chances perdidas (×) e fases com pior precisão.
 
 ## Plano de Evolução
-Divida em quatro semanas, com o título "### Semana 1" até "### Semana 4". Em cada semana, 2 ou 3 tarefas práticas e mensuráveis (o que estudar, quantas partidas jogar, o que revisar). Use as anotações !! (brilhante), ! (excelente), ★ (melhor), 👍 (ótimo), ? (erro), × (chance perdida) e ?? (capivarada) quando ajudarem a explicar.
+Divida em quatro semanas, com o título "### Semana 1" até "### Semana 4". Em cada semana, 2 ou 3 tarefas práticas e mensuráveis (o que estudar, quantas partidas jogar, o que revisar). Use as anotações !! (brilhante), ! (grande lance ou excelente), ★ (melhor), ✓ (bom), 📖 (livro), ?! (imprecisão), ? (erro), × (chance perdida) e ?? (erro grosseiro) quando ajudarem a explicar.
 
 Máximo de 500 palavras. Baseie cada afirmação nos números fornecidos. Não invente partidas, lances ou avaliações. Se algo não estiver nos dados, diga que não há dados suficientes.
 

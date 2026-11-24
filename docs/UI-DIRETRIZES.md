@@ -140,7 +140,8 @@ Animista e tokens de movimento do Open Props. Nenhuma foi instalada.
 
 - Comparar desktop (1280 px) e mobile (420 px).
 - Verificar que a ordem das anotações é:
-  Brilhante, Excelente, Melhor, Ótimo, Erro, Chance Perdida, Capivarada.
+  Brilhante, Grande Lance, Melhor, Excelente, Bom, Livro, Imprecisão, Erro,
+  Chance Perdida, Erro Grosseiro.
 - Verificar que não existe dropzone, código de acesso, “Detalhes da conexão”
   nem a frase sobre licenças em `vendor/`.
 - Testar com movimento reduzido ativado.

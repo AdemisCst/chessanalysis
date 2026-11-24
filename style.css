@@ -26,6 +26,16 @@
     --danger-soft: #3a1414;
     --warning: #fbbf24;
     --warning-soft: #36280b;
+    --ann-brilliant: #26c2a3;
+    --ann-great: #1b9aff;
+    --ann-best: #96bc4b;
+    --ann-excellent: #96bc4b;
+    --ann-good: #95bb4a;
+    --ann-book: #a88865;
+    --ann-inaccuracy: #f7c631;
+    --ann-mistake: #ffa459;
+    --ann-missed: #fa412d;
+    --ann-blunder: #fa412d;
     --draw: #94a3b8;
     --board-light: #cfd8c5;
     --board-dark: #6f8a62;
@@ -792,7 +802,7 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
 .km-mistake .km-loss { color: var(--warning); }
 .km-best .km-loss { color: var(--success); }
 
-/* ---------- anotações dos lances (!! ★ × ?? ? ! 👍) ----------
+/* ---------- anotações dos lances (!! ! ★ ✓ 📖 ?! ? × ??) ----------
    O símbolo é o portador da informação: a cor apenas reforça. Por isso a
    legenda e os tooltips repetem o nome da anotação em texto. */
 .ann-symbol {
@@ -806,22 +816,28 @@ h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; colo
     line-height: 1;
     letter-spacing: -0.02em;
 }
-.ann-brilliant { color: #c084fc; }
-.ann-best { color: var(--success); }
-.ann-missed { color: #fdba74; }
-.ann-blunder { color: var(--danger); }
-.ann-mistake { color: var(--warning); }
-.ann-excellent { color: var(--success); }
-.ann-good { color: var(--text-muted); }
-body.light .ann-brilliant { color: #9333ea; }
-body.light .ann-missed { color: #c2410c; }
+.ann-brilliant { color: var(--ann-brilliant); }
+.ann-great { color: var(--ann-great); }
+.ann-best { color: var(--ann-best); }
+.ann-excellent { color: var(--ann-excellent); }
+.ann-good { color: var(--ann-good); }
+.ann-book { color: var(--ann-book); }
+.ann-inaccuracy { color: var(--ann-inaccuracy); }
+.ann-mistake { color: var(--ann-mistake); }
+.ann-missed { color: var(--ann-missed); }
+.ann-blunder { color: var(--ann-blunder); }
 
 .move-btn .ann-symbol { margin-left: 2px; }
-.move-btn.ann-blunder { color: var(--danger); font-weight: 700; }
-.move-btn.ann-mistake, .move-btn.ann-missed { color: var(--warning); font-weight: 600; }
-.move-btn.ann-brilliant { color: #c084fc; font-weight: 700; }
-body.light .move-btn.ann-brilliant { color: #9333ea; }
-.move-btn.ann-best, .move-btn.ann-excellent { color: var(--success); font-weight: 600; }
+.move-btn.ann-brilliant { color: var(--ann-brilliant); font-weight: 700; }
+.move-btn.ann-great { color: var(--ann-great); font-weight: 700; }
+.move-btn.ann-best { color: var(--ann-best); font-weight: 600; }
+.move-btn.ann-excellent { color: var(--ann-excellent); font-weight: 600; }
+.move-btn.ann-good { color: var(--ann-good); font-weight: 600; }
+.move-btn.ann-book { color: var(--ann-book); font-weight: 600; }
+.move-btn.ann-inaccuracy { color: var(--ann-inaccuracy); font-weight: 600; }
+.move-btn.ann-mistake { color: var(--ann-mistake); font-weight: 600; }
+.move-btn.ann-missed { color: var(--ann-missed); font-weight: 600; }
+.move-btn.ann-blunder { color: var(--ann-blunder); font-weight: 700; }
 
 .side-tags { display: flex; flex-direction: column; gap: 8px; }
 .side-tag-group { display: flex; flex-direction: column; gap: 4px; }
@@ -844,7 +860,7 @@ body.light .move-btn.ann-brilliant { color: #9333ea; }
 }
 .ann-legend-item { display: inline-flex; align-items: center; gap: 3px; }
 .km-symbol { font-size: 1rem; font-weight: 800; }
-.km-item.ann-brilliant { border-color: color-mix(in srgb, #9333ea 35%, var(--border)); }
+.km-item.ann-brilliant { border-color: color-mix(in srgb, var(--ann-brilliant) 35%, var(--border)); }
 
 .ai-move-explanation {
     margin-top: 10px;

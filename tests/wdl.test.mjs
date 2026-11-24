@@ -70,6 +70,7 @@ test('posição terminal é isenta de WDL e o mate continua prioritário', () =>
 test('buildAnalysis usa WDL e grava version 3 com proveniência', () => {
     const analysis = Engine.buildAnalysis('g_wdl', data, [WHITE_75, BLACK_35], 12, 1);
     assert.equal(analysis.version, 3);
+    assert.equal(analysis.classificationVersion, Engine.CLASSIFICATION_VERSION);
     assert.equal(analysis.scoreSource, 'wdl');
     assert.equal(analysis.engineBuild, Engine.BUILD_ID);
     assert.equal(analysis.summary.engineBuild, Engine.BUILD_ID);
@@ -79,7 +80,7 @@ test('buildAnalysis usa WDL e grava version 3 com proveniência', () => {
     assert.equal(analysis.moves[0].before, 75);
     assert.equal(analysis.moves[0].after, 65);
     assert.equal(analysis.moves[0].loss, 10);
-    assert.equal(analysis.moves[0].annotation, 'mistake');
+    assert.equal(analysis.moves[0].annotation, 'inaccuracy');
 });
 
 test('sem WDL completo a análise inteira cai para a curva de cp (v2)', () => {
@@ -129,6 +130,7 @@ test('enriquecimento preserva versão, fonte, motor e chave antigos', () => {
     assert.equal(rebuilt.scoreSource, 'cp', 'não troca a fonte do histórico');
     assert.equal(rebuilt.engine, 'Stockfish 10 (WASM)');
     assert.equal(rebuilt.engineBuild, Engine.LEGACY_BUILD_ID);
+    assert.equal(rebuilt.classificationVersion, Engine.CLASSIFICATION_VERSION);
     assert.equal(rebuilt.winPctWhite[0], 50, 'usa a curva, não o WDL armazenado');
     assert.equal(rebuilt.engineId, null);
 });

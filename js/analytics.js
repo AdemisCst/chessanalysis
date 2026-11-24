@@ -537,7 +537,7 @@ function localInsights(brief) {
         });
     }
     if (annotations.blunder) {
-        lines.push(`- **${annotations.blunder}** capivarada(s) (??) e **${annotations.mistake || 0}** erro(s) (?) no seu lado.`);
+        lines.push(`- **${annotations.blunder}** erro(s) grosseiro(s) (??) e **${annotations.mistake || 0}** erro(s) (?) no seu lado.`);
     }
     if (annotations.missed) {
         lines.push(`- **${annotations.missed}** chance(s) perdida(s) (×): posições ganhas que deixaram de ser ganhas.`);
@@ -562,7 +562,7 @@ function localInsights(brief) {
     lines.push('- Revise suas chances perdidas (×) e escreva o lance que faltou em cada uma.');
     lines.push('### Semana 4');
     lines.push('- Jogue 4 partidas com ritmo mais longo e analise todas com o Stockfish.');
-    lines.push('- Compare a precisão e o número de capivaradas com a semana 1.');
+    lines.push('- Compare a precisão e o número de erros grosseiros com a semana 1.');
     return lines.join('\n');
 }
 

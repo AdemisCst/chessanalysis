@@ -9,20 +9,20 @@
      Tática      o lado encontrou (ou perdeu) um recurso tático concreto
      Finais      a partida chegou a um final com poucas peças
      Brilhante   o lado tem pelo menos um lance marcado como !!
-     Capivarada  o lado cometeu pelo menos uma perda de 30pp ou mais
+     Erro Grosseiro  o lado cometeu pelo menos uma perda superior a 20pp
 
    O cálculo é determinístico e roda sem internet. A IA pode ser usada depois
-   para comentar as tags, mas não decide sozinha o que é uma capivarada.
+   para comentar as tags, mas não decide sozinha o que é um erro grosseiro.
    ======================================================================== */
 
 const Tags = (() => {
-    const FIXED = ['Abertura', 'Tática', 'Finais', 'Brilhante', 'Capivarada'];
+    const FIXED = ['Abertura', 'Tática', 'Finais', 'Brilhante', 'Erro Grosseiro'];
     const DESCRIPTIONS = {
         Abertura: 'A partida seguiu uma linha nomeada da base de aberturas.',
         Tática: 'Houve um recurso tático concreto (sacrifício, combinação ou chance perdida).',
         Finais: 'A partida chegou a um final.',
         Brilhante: 'O lado tem pelo menos um lance marcado como brilhante (!!).',
-        Capivarada: 'O lado cometeu pelo menos uma capivarada (??).',
+        'Erro Grosseiro': 'O lado cometeu pelo menos um erro grosseiro (??).',
     };
 
     function blank() {
@@ -33,6 +33,11 @@ const Tags = (() => {
         if (!game.tagsBySide || typeof game.tagsBySide !== 'object') game.tagsBySide = blank();
         if (!Array.isArray(game.tagsBySide.w)) game.tagsBySide.w = [];
         if (!Array.isArray(game.tagsBySide.b)) game.tagsBySide.b = [];
+        ['w', 'b'].forEach(color => {
+            game.tagsBySide[color] = game.tagsBySide[color].map(tag =>
+                tag === 'Capivarada' ? 'Erro Grosseiro' : tag
+            );
+        });
         return game.tagsBySide;
     }
 
@@ -62,7 +67,7 @@ const Tags = (() => {
 
     /**
      * Recalcula as tags de ambos os lados. A análise é opcional: sem ela, usa
-     * apenas cabeçalhos e lances; com ela, acrescenta Brilhante, Capivarada e
+     * apenas cabeçalhos e lances; com ela, acrescenta Brilhante, Erro Grosseiro e
      * Tática com base nas anotações do Stockfish.
      */
     function derive(game, analysis, providedMoves) {
@@ -103,12 +108,12 @@ const Tags = (() => {
                     add(record, color, 'Brilhante');
                     add(record, color, 'Tática');
                 }
-                if (Number(counts.blunder) > 0) add(record, color, 'Capivarada');
+                if (Number(counts.blunder) > 0) add(record, color, 'Erro Grosseiro');
                 if (Number(counts.missed) > 0) add(record, color, 'Tática');
             });
         } else {
             // Sem análise: uma sequência de capturas é um indício conservador
-            // de jogo tático. Não marca brilhante nem capivarada sem engine.
+            // de jogo tático. Não marca brilho nem erros grosseiros sem engine.
             ['w', 'b'].forEach(color => {
                 if (countCaptures(moves, color) >= 4) add(record, color, 'Tática');
             });

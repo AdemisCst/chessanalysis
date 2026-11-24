@@ -95,17 +95,20 @@ A análise é sempre local. Nada da posição ou dos lances sai do navegador.
 
 ### 5.1 Classificações
 
-A ordem visual oficial é:
+A interface usa estas classificações:
 
 | Símbolo | Classificação | Critério resumido |
 |---|---|---|
-| `!!` | Brilhante | sacrifício correto ou grande virada, mantendo vantagem |
-| `!` | Excelente | perda de até 2 pontos percentuais de vitória |
-| `★` | Melhor | lance escolhido pelo Stockfish |
-| `👍` | Ótimo | perda entre 2 e 9,9 pontos percentuais |
-| `?` | Erro | perda entre 10 e 29,9 pontos percentuais |
-| `×` | Chance perdida | posição ganha que deixou de ser ganha, mas não perdida |
-| `??` | Capivarada | perda de 30 pontos percentuais ou mais |
+| `!!` | Brilhante | sacrifício de material, perda até 2 pp e alternativa segura, sem ser lance forçado |
+| `!` | Grande Lance | sem sacrifício, perda até 2 pp e segunda opção perde mais de 10 pp |
+| `★` | Melhor | perda zero ou lance da PV principal do Stockfish |
+| `!` | Excelente | perda maior que 0 e até 2 pp |
+| `✓` | Bom | perda maior que 2 e até 5 pp |
+| `📖` | Livro | prefixo ECO reconhecido, exceto erro grosseiro |
+| `?!` | Imprecisão | perda maior que 5 e até 10 pp |
+| `?` | Erro | perda maior que 10 e até 20 pp |
+| `×` | Chance Perdida | antes ≥ 80% (ou mate), depois < 70% e perda ≥ 10 pp |
+| `??` | Erro Grosseiro | perda maior que 20 pp |
 
 A ordem não é uma escala linear. O símbolo e o texto são a informação
 principal; a cor apenas reforça.
@@ -314,10 +317,8 @@ deploy; isso está documentado como limitação.
   calculada pelo Stockfish quando ela existe.
 - A identificação de jogador é provisória.
 - A Central de Análises com fila e checkpoints e as bibliotecas
-  Chess.com/Lichess pertencem às fases seguintes. A classificação atual usa
-  **7 categorias**; as 3 restantes (Grande Lance, Livro, Bom) foram deferidas
-  para a Fase 2.5/5, por exigirem MultiPV 2 e banco de aberturas (ECO). O
-  Expected Score já usa o WDL.
+  Chess.com/Lichess pertencem às fases seguintes. A classificação usa dez
+  categorias, MultiPV 2 e o catálogo ECO local.
 - O motor em `vendor/` é o Stockfish 19 Lite WASM (release v19.0.1), com
   identidade `stockfish-19-lite-single`. Análises antigas do Stockfish 10 são
   preservadas e sinalizadas na interface.

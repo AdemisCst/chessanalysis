@@ -1,12 +1,12 @@
 # Modelo de dados — Chess-Analysis
 
-**Versão:** 1.4 — Fase 3/M3–M4 (retomada e executor)  
+**Versão:** 1.5 — classificações de movimento
 **Atualizado em:** 18/11/2026  
 **Estado:** contratos documentados; persistência de `PlayerIdentity` fica para a
 Fase 5. O `wdl`, a `version: 3`, a chave `gameId@depth@build` e a migração de
-proveniência estão **implementados** (Tarefa 2). As **7 categorias atuais estão
-aprovadas**; as 3 categorias restantes (Grande Lance, Livro, Bom) estão
-**deferidas** para a Fase 2.5/5 — ver §3.2. O banco está na **versão 2** desde a
+proveniência estão **implementados** (Tarefa 2). As dez categorias e a
+classificação versionada estão **implementadas** — ver §3. O banco está na
+**versão 2** desde a
 M1 da Fase 3, com os stores `queue` e `checkpoints` — ver §5. A retomada no
 motor (M3) e o executor com lease (M4) estão **implementados**; a UI é a M5.
 
@@ -249,40 +249,30 @@ Chave legada: `acervo64_settings_v1`.
 
 ## 3. Classificações de movimento
 
-Ordem visual oficial da Fase 1 (7 categorias):
+O motor grava dez categorias. A ordem visual não é uma escala linear:
 
-1. Brilhante (`!!`)
-2. Excelente (`!`)
-3. Melhor (`★`)
-4. Ótimo (`👍`)
-5. Erro (`?`)
-6. Chance Perdida (`×`)
-7. Capivarada (`??`)
-
-A ordem **não** é uma escala linear. O destino da Fase 2 tem 10 categorias
-(Brilhante, Grande Lance, Melhor, Excelente, Bom, Livro, Imprecisão, Erro,
-Chance Perdida, Erro Grosseiro), com critérios versionados, WDL e Expected
-Score.
-
-**Estado na Tarefa 2:** o Expected Score já é derivado do WDL (§3.1) e as
-**7 categorias atuais estão aprovadas**. A implementação das 10 categorias foi
-**deferida para uma fase posterior** (§3.2): além dos limiares, "Grande Lance"
-exige MultiPV 2 e "Livro" exige integração com banco de aberturas (ECO) — ambos
-fora do escopo estrito da Fase 2 (motor e precisão). Nenhum limiar foi
-inventado.
-
-Critérios atuais (em pontos percentuais de vitória — agora calculados sobre a
-fonte escolhida para a análise inteira, `wdl` ou `cp`):
-
-| Categoria | Critério resumido |
+| Categoria | Critério (pontos percentuais de probabilidade de vitória) |
 |---|---|
-| Brilhante | sacrifício ≥ 2 peões ou virada, mantendo ≥ 60% e ≥ 55% dois lances depois |
-| Melhor | igual ao melhor lance do Stockfish |
-| Chance Perdida | antes ≥ 80% (ou mate), depois entre 45% e 70% |
-| Capivarada | perda ≥ 30 pp |
-| Erro | perda entre 10 e 29,9 pp |
-| Excelente | perda ≤ 2 pp |
-| Ótimo | perda entre 2 e 9,9 pp |
+| Brilhante (`!!`) | Sacrifício ≥ 2 peões, perda ≤ 2 pp, vantagem mantida e alternativa segura na MultiPV 2; não pode ser o único lance legal |
+| Grande Lance (`!`) | Não é sacrifício, perda ≤ 2 pp e a segunda PV perde mais de 10 pp |
+| Melhor (`★`) | Perda zero ou lance igual à PV[0] |
+| Excelente (`!`) | Perda > 0 e ≤ 2 pp |
+| Bom (`✓`) | Perda > 2 e ≤ 5 pp |
+| Livro (`📖`) | Toda a sequência até o lance é prefixo reconhecido no catálogo ECO, salvo erro grosseiro |
+| Imprecisão (`?!`) | Perda > 5 e ≤ 10 pp |
+| Erro (`?`) | Perda > 10 e ≤ 20 pp |
+| Chance Perdida (`×`) | Antes ≥ 80% ou mate forçado; depois < 70%; perda ≥ 10 pp |
+| Erro Grosseiro (`??`) | Perda > 20 pp |
+
+Chance Perdida tem precedência. Erro Grosseiro prevalece sobre Livro; Livro
+prevalece sobre as classificações normais. Grande Lance substitui Melhor ou
+Excelente quando a segunda PV perde mais de 10 pp. Brilhante exige que a segunda
+PV seja uma alternativa segura (perda ≤ 10 pp).
+
+`classificationVersion` identifica a regra de classificação aplicada; isso
+permite reconstruir rótulos antigos a partir das posições já salvas. Análises
+antigas sem a segunda PV não recebem Grande Lance nem Brilhante com base em
+alternativas que não foram avaliadas; uma nova análise coleta MultiPV 2.
 
 `Loss = ExpectedScoreBefore − ExpectedScoreAfter`, sempre pela perspectiva de
 quem jogou. O ACPL usa centipeões e é apenas comparativo.
@@ -314,28 +304,12 @@ Regras:
 6. `DB.getAnalysis` prefere o build atual; uma análise v2 do SF10 continua
    legível e nunca é promovida a v3 pelo enriquecimento.
 
-### 3.2. Categorias deferidas: MultiPV 2 e Livro
+### 3.2. MultiPV e Livro
 
-**Decisão de 17/11/2026:** a classificação permanece com **7 categorias**. As
-3 restantes do destino de 10 categorias ficam para uma fase futura (Fase 2.5 ou
-Fase 5), porque dependem de insumos que não pertencem ao escopo da Fase 2.
-
-| Categoria | O que falta | Onde entra |
-|---|---|---|
-| **Grande Lance** | `MultiPV 2` no worker (hoje `MultiPV=1`) + critério versionado para o segundo melhor lance | Fase 2.5/5 |
-| **Livro** | Fonte de abertura (usar `vendor/eco/openings.json` como reconhecimento de lances, não apenas nome da abertura) | Fase 2.5/5 |
-| **Bom** | Faixa intermediária entre "Excelente" e "Imprecisão" | Fase 2.5/5, junto da revisão de limiares |
-| Seção 10.11 do Prompt Mestre | Texto com critérios versionados das 10 categorias | Insumo obrigatório antes da implementação |
-
-Regras:
-
-- Nenhum limiar novo é inventado antes da §10.11.
-- `Engine.ANNOTATION_ORDER`, `THRESHOLDS` e os símbolos das 7 categorias atuais
-  não mudam por causa do deferimento.
-- O Expected Score da v3 (WDL) já está pronto para alimentar os critérios
-  futuros; não haverá nova migração de dados de análise.
-- "MultiPV 2" e "Livro" **não** são requisitos de deploy da Fase 2 e não
-  bloqueiam a publicação atual.
+O worker solicita `MultiPV=2` e guarda separadamente a linha principal e a
+segunda linha, incluindo CP, mate, WDL e PV. O catálogo ECO local reconhece
+apenas prefixos completos; após um desvio, lances seguintes não continuam
+marcados como Livro por causa de uma abertura anterior.
 
 
 ---

@@ -139,7 +139,7 @@ const Report = (() => {
         if (!analysis || !analysis.counts) return '';
         const order = window.Engine && Engine.ANNOTATION_ORDER
             ? Engine.ANNOTATION_ORDER
-            : ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'];
+            : ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'missed', 'blunder'];
         return order.map(key => {
             const info = annotationInfo(key);
             const white = analysis.counts.w ? analysis.counts.w[key] || 0 : 0;
@@ -270,7 +270,10 @@ const Report = (() => {
             return items;
         }
         const counts = analysis.counts || { w: {}, b: {} };
-        const total = side => ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder']
+        const annotationKeys = window.Engine && Engine.ANNOTATION_ORDER
+            ? Engine.ANNOTATION_ORDER
+            : ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'missed', 'blunder'];
+        const total = side => annotationKeys
             .reduce((sum, key) => sum + Number((counts[side] || {})[key] || 0), 0);
         const blunders = Number((counts.w || {}).blunder || 0) + Number((counts.b || {}).blunder || 0);
         const missed = Number((counts.w || {}).missed || 0) + Number((counts.b || {}).missed || 0);
@@ -278,7 +281,7 @@ const Report = (() => {
         const phase = worstPhase(analysis);
 
         if (blunders > 0) {
-            items.push(`Revise as ${blunders} capivarada(s) (??) antes de jogar a próxima partida: pare no lance anterior e calcule o lance candidato por 2–3 minutos.`);
+            items.push(`Revise os ${blunders} erro(s) grosseiro(s) (??) antes de jogar a próxima partida: pare no lance anterior e calcule o lance candidato por 2–3 minutos.`);
         }
         if (missed > 0) {
             items.push(`Treine conversão: houve ${missed} chance(s) perdida(s) (×). Com vantagem, compare o lance jogado com a linha do Stockfish antes de simplificar.`);
@@ -401,7 +404,7 @@ const Report = (() => {
     ${counts ? `<h2>Classificação dos lances</h2>
         <table><thead><tr><th>Classificação</th><th>Brancas</th><th>Pretas</th></tr></thead>
         <tbody>${classificationRows(analysis)}</tbody></table>
-        <p class="small muted">Ordem visual oficial: Brilhante, Excelente, Melhor, Ótimo, Erro, Chance Perdida, Capivarada. A ordem não é uma escala linear.</p>`
+        <p class="small muted">A classificação combina limites de perda e exceções táticas; a ordem visual não é uma escala linear.</p>`
         : '<h2>Classificação dos lances</h2><p class="muted">Partida ainda não analisada pelo Stockfish.</p>'}
 
     ${analysis && analysis.phaseAccuracy ? `<h2>Precisão por fase</h2>

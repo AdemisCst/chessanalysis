@@ -16,17 +16,20 @@ const source = await readFile(join(root, 'js/report.js'), 'utf8');
 
 const ANNOTATIONS = {
     brilliant: { symbol: '!!', label: 'Brilhante' },
+    great: { symbol: '!', label: 'Grande Lance' },
     excellent: { symbol: '!', label: 'Excelente' },
     best: { symbol: '★', label: 'Melhor' },
-    good: { symbol: '👍', label: 'Ótimo' },
+    good: { symbol: '✓', label: 'Bom' },
+    book: { symbol: '📖', label: 'Livro' },
+    inaccuracy: { symbol: '?!', label: 'Imprecisão' },
     mistake: { symbol: '?', label: 'Erro' },
-    missed: { symbol: '×', label: 'Chance perdida' },
-    blunder: { symbol: '??', label: 'Capivarada' },
+    missed: { symbol: '×', label: 'Chance Perdida' },
+    blunder: { symbol: '??', label: 'Erro Grosseiro' },
 };
 
 function loadReport(overrides = {}) {
     const Engine = {
-        ANNOTATION_ORDER: ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'],
+        ANNOTATION_ORDER: ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'missed', 'blunder'],
         annotationInfo: key => ANNOTATIONS[key] || { symbol: '?', label: key || '—' },
         isLegacyAnalysis: () => false,
         ...overrides,
@@ -70,7 +73,7 @@ const ANALYSIS = {
         { annotation: 'best', symbol: '★' },
         { annotation: 'excellent', symbol: '!' },
         { annotation: 'mistake', symbol: '?' },
-        { annotation: 'good', symbol: '👍' },
+        { annotation: 'good', symbol: '✓' },
     ],
     keyMoments: [
         {
@@ -124,6 +127,15 @@ test('símbolos de classificação acompanham o lance, na coluna certa', () => {
     assert.ok(moves.includes('<td>1. e4 <span class="sym">!!</span></td>'));
     assert.ok(moves.includes('<td>e5 <span class="sym">★</span></td>'));
     assert.ok(moves.includes('<td>d6 <span class="sym">?</span></td>'));
+});
+
+test('tabela PDF lista as novas classificações e rótulos', () => {
+    const html = Report.buildHtml(GAME, DATA, ANALYSIS, null);
+    assert.ok(html.includes('! Grande Lance'));
+    assert.ok(html.includes('✓ Bom'));
+    assert.ok(html.includes('📖 Livro'));
+    assert.ok(html.includes('?! Imprecisão'));
+    assert.ok(html.includes('?? Erro Grosseiro'));
 });
 
 test('partida sem análise mostra a lista, mas não inventa classificação', () => {

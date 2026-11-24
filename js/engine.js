@@ -4,19 +4,12 @@
    avaliações em: anotação de cada lance, precisão, ACPL, gráfico, momentos-
    chave e fases da partida.
 
-   ANOTAÇÕES (ordem visual oficial):
-     !!  Brilhante       sacrifício correto ou grande virada, mantendo vantagem
-     !   Excelente       perda de até 2 pontos percentuais
-     ★   Melhor          lance escolhido pelo Stockfish
-     👍  Ótimo           perda entre 2 e 9,9 pontos percentuais
-     ?   Erro            perda entre 10 e 29,9 pontos percentuais
-     ×   Chance perdida  posição ganha que deixou de ser ganha, mas não perdida
-     ??  Capivarada      perda de 30 pontos percentuais ou mais
+   ANOTAÇÕES (ordem visual):
+     !! Brilhante · ! Grande Lance · ★ Melhor · ! Excelente · ✓ Bom
+     📖 Livro · ?! Imprecisão · ? Erro · × Chance Perdida · ?? Erro Grosseiro
 
-   Os limiares ficam em constantes comentadas para calibração. A perda usada
-   nas anotações é medida em PONTOS PERCENTUAIS de vitória (win%), não em
-   centipeões. O ACPL é medido em centipeões e serve para comparação com
-   outras ferramentas.
+   A perda é medida em pontos percentuais de probabilidade de vitória; ACPL
+   continua sendo medido em centipeões.
 
    Nada sai do computador: o Stockfish roda em vendor/stockfish.
    ======================================================================== */
@@ -33,35 +26,42 @@ const Engine = (() => {
     const BUILD_ID = 'stockfish-19-lite-single';
     const BUILD_LABEL = 'Stockfish 19 Lite WASM';
     const LEGACY_BUILD_ID = 'stockfish-10-legacy';
+    const CLASSIFICATION_VERSION = 2;
 
     /* ---------- limiares de anotação (calibráveis) ---------- */
     const THRESHOLDS = {
-        blunder: 30,        // ?? a partir de 30pp de perda
-        mistake: 10,        // ?  entre 10 e 29,9pp
-        excellent: 2,       // !  até 2pp de perda
-        missedBefore: 80,   // ×  posição era ganha com 80%+ (ou mate)
-        missedAfter: 70,    // ×  deixou de ser ganha abaixo de 70%
-        missedFloor: 45,    // ×  mas ainda não está perdida (45%+)
-        sacrifice: 2,       // !! material entregue (em peões)
-        brilliantAfter: 60, // !! mantém 60%+ depois do lance
-        brilliantFollow: 55,// !! e ainda 55%+ dois lances depois
-        turnaroundBefore: 35, // !! virada: antes 35% ou menos...
-        turnaroundAfter: 60,  // ...depois 60% ou mais
-        brilliantLoss: 2,   // !! tolerância de perda do próprio lance
-        minPly: 6,          // não marca brilhante nos 3 primeiros lances
+        blunder: 20,
+        excellent: 2,
+        good: 5,
+        inaccuracy: 10,
+        missedBefore: 80,
+        missedAfter: 70,
+        missedLoss: 10,
+        greatAlternativeLoss: 10,
+        sacrifice: 2,
+        brilliantAfter: 60,
+        brilliantFollow: 55,
+        brilliantLoss: 2,
+        minPly: 6,
     };
 
     const ANNOTATIONS = {
-        brilliant: { key: 'brilliant', symbol: '!!', label: 'Brilhante', cls: 'best' },
-        best:      { key: 'best',      symbol: '★',  label: 'Melhor', cls: 'best' },
-        missed:    { key: 'missed',    symbol: '×',  label: 'Chance perdida', cls: 'mistake' },
-        blunder:   { key: 'blunder',   symbol: '??', label: 'Capivarada', cls: 'blunder' },
-        mistake:   { key: 'mistake',   symbol: '?',  label: 'Erro', cls: 'mistake' },
-        excellent: { key: 'excellent', symbol: '!',  label: 'Excelente', cls: 'good' },
-        good:      { key: 'good',      symbol: '👍', label: 'Ótimo', cls: 'good' },
+        brilliant:  { key: 'brilliant',  symbol: '!!', label: 'Brilhante', cls: 'brilliant' },
+        great:      { key: 'great',      symbol: '!',  label: 'Grande Lance', cls: 'great' },
+        best:       { key: 'best',       symbol: '★',  label: 'Melhor', cls: 'best' },
+        excellent:  { key: 'excellent',  symbol: '!',  label: 'Excelente', cls: 'excellent' },
+        good:       { key: 'good',       symbol: '✓',  label: 'Bom', cls: 'good' },
+        book:       { key: 'book',       symbol: '📖', label: 'Livro', cls: 'book' },
+        inaccuracy: { key: 'inaccuracy', symbol: '?!', label: 'Imprecisão', cls: 'inaccuracy' },
+        mistake:    { key: 'mistake',    symbol: '?',  label: 'Erro', cls: 'mistake' },
+        missed:     { key: 'missed',     symbol: '×',  label: 'Chance Perdida', cls: 'missed' },
+        blunder:    { key: 'blunder',    symbol: '??', label: 'Erro Grosseiro', cls: 'blunder' },
     };
 
-    const ANNOTATION_ORDER = ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'];
+    const ANNOTATION_ORDER = [
+        'brilliant', 'great', 'best', 'excellent', 'good',
+        'book', 'inaccuracy', 'mistake', 'missed', 'blunder',
+    ];
     const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 
     let worker = null;
@@ -175,11 +175,13 @@ const Engine = (() => {
     function parseInfo(line) {
         if (!line.startsWith('info') || !line.includes(' score ')) return null;
         const depthMatch = line.match(/\bdepth (\d+)/);
+        const multipvMatch = line.match(/\bmultipv (\d+)/);
         const scoreMatch = line.match(/\bscore (cp|mate) (-?\d+)/);
         if (!scoreMatch) return null;
         const pvMatch = line.match(/\bpv (.+)$/);
         return {
             depth: depthMatch ? Number(depthMatch[1]) : 0,
+            multipv: multipvMatch ? Number(multipvMatch[1]) : 1,
             type: scoreMatch[1],
             value: Number(scoreMatch[2]),
             wdl: parseWdl(line),
@@ -238,23 +240,39 @@ const Engine = (() => {
     function onLine(line) {
         if (!active) return;
         const info = parseInfo(line);
-        if (usableInfo(info, active.terminal) && info.depth >= active.best.depth) {
-            active.best.depth = info.depth;
-            active.best.cp = info.type === 'cp' ? info.value : null;
-            active.best.mate = info.type === 'mate' ? info.value : null;
-            active.best.wdl = info.wdl;
-            active.best.pv = info.pv;
+        if (usableInfo(info, active.terminal)
+            && Number.isInteger(info.multipv)
+            && info.multipv >= 1
+            && info.multipv <= 2) {
+            const previous = active.lines[info.multipv];
+            if (info.depth >= previous.depth) {
+                active.lines[info.multipv] = {
+                    depth: info.depth,
+                    cp: info.type === 'cp' ? info.value : null,
+                    mate: info.type === 'mate' ? info.value : null,
+                    wdl: info.wdl,
+                    pv: info.pv,
+                };
+            }
         }
         if (line.startsWith('bestmove')) {
             const parts = line.split(/\s+/);
             const best = parts[1] && parts[1] !== '(none)' ? parts[1] : null;
+            const primary = active.lines[1];
+            const secondary = active.lines[2];
+            const hasSecondary = secondary.depth >= 0 && secondary.depth === primary.depth;
             const result = {
-                cp: active.best.cp,
-                mate: active.best.mate,
-                wdl: active.best.wdl,
-                depth: active.best.depth,
+                cp: primary.cp,
+                mate: primary.mate,
+                wdl: primary.wdl,
+                depth: primary.depth,
                 best,
-                pv: active.best.pv,
+                pv: primary.pv,
+                secondCp: hasSecondary ? secondary.cp : null,
+                secondMate: hasSecondary ? secondary.mate : null,
+                secondWdl: hasSecondary ? secondary.wdl : null,
+                secondBest: hasSecondary ? secondary.pv[0] || null : null,
+                secondPv: hasSecondary ? secondary.pv : [],
             };
             const finish = active.finish;
             active = null;
@@ -302,7 +320,7 @@ const Engine = (() => {
                 if (line.includes('uciok') && !sentOptions) {
                     sentOptions = true;
                     worker.postMessage('setoption name Hash value 32');
-                    worker.postMessage('setoption name MultiPV value 1');
+                    worker.postMessage('setoption name MultiPV value 2');
                     worker.postMessage('setoption name UCI_ShowWDL value true');
                     worker.postMessage('isready');
                     return;
@@ -352,7 +370,10 @@ const Engine = (() => {
             active = {
                 id,
                 terminal: false,
-                best: { cp: null, mate: null, wdl: null, depth: -1, pv: [] },
+                lines: {
+                    1: { cp: null, mate: null, wdl: null, depth: -1, pv: [] },
+                    2: { cp: null, mate: null, wdl: null, depth: -1, pv: [] },
+                },
                 finish: result => {
                     cleanup();
                     resolve(result);
@@ -370,15 +391,25 @@ const Engine = (() => {
 
             timer = setTimeout(() => {
                 if (worker) worker.postMessage('stop');
-                const fallback = active && active.best;
+                const lines = active && active.lines;
+                const primary = lines && lines[1];
+                const secondary = lines && lines[2];
+                const hasSecondary = !!primary && !!secondary
+                    && secondary.depth >= 0
+                    && secondary.depth === primary.depth;
                 cleanup();
                 resolve({
-                    cp: fallback ? fallback.cp : null,
-                    mate: fallback ? fallback.mate : null,
-                    wdl: fallback ? fallback.wdl : null,
-                    depth: fallback ? fallback.depth : 0,
+                    cp: primary ? primary.cp : null,
+                    mate: primary ? primary.mate : null,
+                    wdl: primary ? primary.wdl : null,
+                    depth: primary ? primary.depth : 0,
                     best: null,
-                    pv: [],
+                    pv: primary ? primary.pv : [],
+                    secondCp: hasSecondary ? secondary.cp : null,
+                    secondMate: hasSecondary ? secondary.mate : null,
+                    secondWdl: hasSecondary ? secondary.wdl : null,
+                    secondBest: hasSecondary ? secondary.pv[0] || null : null,
+                    secondPv: hasSecondary ? secondary.pv : [],
                 });
             }, 45000);
 
@@ -490,6 +521,31 @@ const Engine = (() => {
         return total;
     }
 
+    function legalMoveCount(fen) {
+        return new Chess(fen).moves().length;
+    }
+
+    function sacrificeOf(fen, mover, playedSan, position) {
+        if (!position || !Array.isArray(position.pv) || position.pv.length < 2) return 0;
+        const chess = new Chess(fen);
+        const materialBefore = materialOf(fen, mover);
+        const played = chess.move(playedSan);
+        if (!played) return 0;
+        const uci = played.from + played.to + (played.promotion || '');
+        const line = position.best === uci
+            ? position.pv
+            : (position.secondBest === uci ? position.secondPv : null);
+        if (!Array.isArray(line) || line.length < 2 || line[0] !== uci) return 0;
+        const reply = line[1];
+        const captured = chess.move({
+            from: reply.slice(0, 2),
+            to: reply.slice(2, 4),
+            promotion: reply[4] || undefined,
+        });
+        if (!captured) return 0;
+        return Math.max(0, materialBefore - materialOf(chess.fen(), mover));
+    }
+
     /**
      * Fase da partida. A abertura vai até o lance 20 (10 lances de cada lado);
      * o final começa nos últimos 25% de partidas com mais de 60 lances.
@@ -504,19 +560,35 @@ const Engine = (() => {
         return ANNOTATIONS[key] || ANNOTATIONS.good;
     }
 
-    /**
-     * Decide a anotação de um lance seguindo a prioridade pedida:
-     * Brilhante → Melhor → Chance perdida → Capivarada → Erro →
-     * Excelente → Ótimo.
-     */
+    /** Aplica as exceções e os limites de perda em ordem de precedência. */
     function decideAnnotation(flags) {
-        if (flags.brilliant) return 'brilliant';
-        if (flags.isBest) return 'best';
         if (flags.missed) return 'missed';
-        if (flags.loss >= THRESHOLDS.blunder) return 'blunder';
-        if (flags.loss >= THRESHOLDS.mistake) return 'mistake';
+        if (flags.loss > THRESHOLDS.blunder) return 'blunder';
+        if (flags.book) return 'book';
+        if (flags.brilliant) return 'brilliant';
+        if (flags.great) return 'great';
+        if (flags.isBest || flags.loss === 0) return 'best';
         if (flags.loss <= THRESHOLDS.excellent) return 'excellent';
-        return 'good';
+        if (flags.loss <= THRESHOLDS.good) return 'good';
+        if (flags.loss <= THRESHOLDS.inaccuracy) return 'inaccuracy';
+        return 'mistake';
+    }
+
+    function isMissedChance(flags) {
+        return (flags.before >= THRESHOLDS.missedBefore || flags.mateBefore > 0)
+            && flags.after < THRESHOLDS.missedAfter
+            && flags.loss >= THRESHOLDS.missedLoss;
+    }
+
+    function isBrilliantCandidate(flags, fen) {
+        return flags.ply >= THRESHOLDS.minPly
+            && flags.loss <= THRESHOLDS.brilliantLoss
+            && flags.sacrifice >= THRESHOLDS.sacrifice
+            && flags.after >= THRESHOLDS.brilliantAfter
+            && flags.follow >= THRESHOLDS.brilliantFollow
+            && flags.secondLoss != null
+            && flags.secondLoss <= THRESHOLDS.greatAlternativeLoss
+            && legalMoveCount(fen) > 1;
     }
 
     function blankCounts() {
@@ -557,6 +629,12 @@ const Engine = (() => {
             || (engineBuild === BUILD_ID ? BUILD_LABEL : 'Stockfish (WASM)');
         const version = scoreSource === 'wdl' ? 3 : 2;
         const moves = data.moves || [];
+        const openings = window.Openings;
+        const bookMoves = moves.map((move, index) => !!(
+            openings
+            && typeof openings.isBookSequence === 'function'
+            && openings.isBookSequence(moves.slice(0, index + 1))
+        ));
         const winPctWhite = positions.map((position, index) => whiteWinPct(position, index, scoreSource));
         const evaluated = [];
         const counts = { w: blankCounts(), b: blankCounts() };
@@ -592,28 +670,44 @@ const Engine = (() => {
             const playedSan = moves[i].san;
             const isBest = !!bestSan && bestSan.replace(/[+#]/g, '') === playedSan.replace(/[+#]/g, '');
             const mateBefore = mateFor(beforePosition, i, mover);
-            const mateAfter = mateFor(afterPosition, i + 1, mover);
-            const beforeWinning = before >= THRESHOLDS.missedBefore || (mateBefore != null && mateBefore > 0);
-            const afterWinning = after >= THRESHOLDS.missedAfter || (mateAfter != null && mateAfter > 0);
-            const missed = beforeWinning && !afterWinning
-                && after >= THRESHOLDS.missedFloor
-                && loss >= THRESHOLDS.mistake;
+            const missed = isMissedChance({ before, after, loss, mateBefore });
 
-            // Sacrifício: material entregue de imediato e vantagem mantida.
-            const sacrifice = Math.max(0, materialOf(beforeFen, mover) - materialOf(afterFen, mover));
+            const sacrifice = sacrificeOf(beforeFen, mover, playedSan, beforePosition);
+            const secondPosition = beforePosition && {
+                cp: beforePosition.secondCp,
+                mate: beforePosition.secondMate,
+                wdl: beforePosition.secondWdl,
+            };
+            const hasSecondScore = !!beforePosition && !!beforePosition.secondBest
+                && beforePosition.secondBest !== beforePosition.best
+                && (beforePosition.secondMate != null
+                    || (scoreSource === 'wdl'
+                        ? validWdl(secondPosition) !== null
+                        : beforePosition.secondCp != null));
+            let secondLoss = null;
+            if (hasSecondScore) {
+                const secondWhite = whiteWinPct(secondPosition, i, scoreSource);
+                const secondForMover = mover === 'w' ? secondWhite : 100 - secondWhite;
+                secondLoss = Math.max(0, before - secondForMover);
+            }
+
             const followIndex = Math.min(i + 2, positions.length - 1);
             const followWin = winForMover(winPctWhite, followIndex, mover);
-            const sacrificeOk = sacrifice >= THRESHOLDS.sacrifice
-                && after >= THRESHOLDS.brilliantAfter
-                && followWin >= THRESHOLDS.brilliantFollow;
-            const turnaround = before <= THRESHOLDS.turnaroundBefore
-                && after >= THRESHOLDS.turnaroundAfter
-                && followWin >= THRESHOLDS.brilliantFollow;
-            const brilliant = i + 1 >= THRESHOLDS.minPly
-                && loss <= THRESHOLDS.brilliantLoss
-                && (sacrificeOk || turnaround);
+            const brilliant = isBrilliantCandidate({
+                ply: i + 1,
+                loss,
+                sacrifice,
+                after,
+                follow: followWin,
+                secondLoss,
+            }, beforeFen);
+            const great = sacrifice === 0
+                && loss <= THRESHOLDS.excellent
+                && secondLoss !== null
+                && secondLoss > THRESHOLDS.greatAlternativeLoss;
+            const book = bookMoves[i] && loss <= THRESHOLDS.blunder;
 
-            const annotation = decideAnnotation({ brilliant, isBest, missed, loss });
+            const annotation = decideAnnotation({ brilliant, great, book, isBest, missed, loss });
             const info = annotationInfo(annotation);
 
             // ACPL em centipeões: avaliação antes menos avaliação depois,
@@ -647,6 +741,9 @@ const Engine = (() => {
                 phase,
                 sacrifice,
                 brilliant,
+                great,
+                book,
+                secondLoss: secondLoss == null ? null : Math.round(secondLoss * 10) / 10,
                 missed,
                 isBest,
             };
@@ -703,6 +800,7 @@ const Engine = (() => {
             // Sem cobertura completa de WDL, a análise permanece v2 e usa a
             // curva logística sobre cp — a fonte nunca é misturada por posição.
             version,
+            classificationVersion: CLASSIFICATION_VERSION,
             depth,
             engine: engineName,
             engineId: resolvedEngineId || null,
@@ -746,16 +844,21 @@ const Engine = (() => {
         };
     }
 
-    /**
-     * Enriquece uma análise antiga (sem anotações/ACPL) sem rodar o Stockfish
-     * outra vez. Usa as posições e os lances já salvos.
-     */
+    /** Reconstroi classificacoes desatualizadas sem executar o Stockfish de novo. */
     function enrichAnalysis(analysis, data) {
         if (!analysis || !data || !Array.isArray(analysis.positions) || !Array.isArray(data.moves)) return analysis;
+        const hasCurrentCounts = analysis.counts && ['w', 'b'].every(color => {
+            const side = analysis.counts[color];
+            return side && ANNOTATION_ORDER.every(key =>
+                side[key] != null && Number.isFinite(Number(side[key]))
+            );
+        });
         const complete = analysis.version >= 2
+            && analysis.classificationVersion === CLASSIFICATION_VERSION
             && Array.isArray(analysis.moves)
             && analysis.moves.length === data.moves.length
-            && analysis.moves.every(move => move && move.annotation && move.symbol);
+            && analysis.moves.every(move => move && move.annotation && move.symbol)
+            && hasCurrentCounts;
         if (complete) return analysis;
         try {
             // Reconstrução não altera a história: mantém o motor, o build e a
@@ -808,6 +911,9 @@ const Engine = (() => {
         }
 
         await init();
+        if (window.Openings && !window.Openings.loaded && typeof window.Openings.load === 'function') {
+            await window.Openings.load();
+        }
         const positions = seeds.slice();
 
         for (let index = startIndex; index < total; index++) {
@@ -831,9 +937,14 @@ const Engine = (() => {
         BUILD_ID,
         BUILD_LABEL,
         LEGACY_BUILD_ID,
+        CLASSIFICATION_VERSION,
         THRESHOLDS,
         ANNOTATIONS,
         ANNOTATION_ORDER,
+        decideAnnotation,
+        isMissedChance,
+        isBrilliantCandidate,
+        parseInfo,
         supported,
         init,
         analyzeGame,

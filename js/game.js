@@ -37,7 +37,7 @@ async function openGame(id) {
             DB.getAI(id, 'tags'),
         ]);
         if (sequence !== gameOpenSequence) return;
-        // Análises antigas não têm anotações (!!, ★, ×, ??, ?, !, 👍).
+        // Análises antigas podem não ter as classificações nem o MultiPV 2.
         // O enriquecimento reaproveita as posições salvas, sem reanalisar.
         State.analysis = analysis ? Engine.enrichAnalysis(analysis, data) : null;
         if (State.analysis && State.analysis !== analysis) {
@@ -369,7 +369,7 @@ function annotationCountsHtml(color) {
     return parts.length ? parts.join('') : '<span class="muted small">Sem anotações.</span>';
 }
 
-/** Legenda fixa dos sete símbolos, usada na análise e no relatório. */
+/** Legenda das classificações, usada na análise e no relatório. */
 function renderAnnotationLegend() {
     const box = $('annotationLegend');
     if (!box) return;
@@ -412,7 +412,7 @@ function renderAnalysisTab() {
     $('accuracyBox').innerHTML = card('w', 'Brancas') + card('b', 'Pretas');
 
     if (!analysis.keyMoments || !analysis.keyMoments.length) {
-        $('keyMoments').innerHTML = '<p class="muted small">Nenhuma capivarada, erro, chance perdida ou brilhante encontrado.</p>';
+        $('keyMoments').innerHTML = '<p class="muted small">Nenhum erro grosseiro, erro, chance perdida ou lance brilhante encontrado.</p>';
     } else {
         $('keyMoments').innerHTML = analysis.keyMoments.map(moment => {
             const key = moment.annotation || (moment.cls === 'blunder' ? 'blunder' : 'mistake');

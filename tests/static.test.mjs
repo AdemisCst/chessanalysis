@@ -98,9 +98,28 @@ test('tema padrão é escuro e a classe alternativa é light', async () => {
 
 test('ordem visual das anotações segue a diretriz oficial', async () => {
     const engine = await read('js/engine.js');
-    assert.ok(engine.includes(
-        "const ANNOTATION_ORDER = ['brilliant', 'excellent', 'best', 'good', 'mistake', 'missed', 'blunder'];"
-    ));
+    assert.ok(engine.includes("'brilliant', 'great', 'best', 'excellent', 'good'"));
+    assert.ok(engine.includes("'book', 'inaccuracy', 'mistake', 'missed', 'blunder'"));
+    assert.ok(engine.includes('setoption name MultiPV value 2'));
+});
+
+test('cores das classificações correspondem à paleta definida', async () => {
+    const css = await read('style.css');
+    const colors = {
+        '--ann-brilliant': '#26c2a3',
+        '--ann-great': '#1b9aff',
+        '--ann-best': '#96bc4b',
+        '--ann-excellent': '#96bc4b',
+        '--ann-good': '#95bb4a',
+        '--ann-book': '#a88865',
+        '--ann-inaccuracy': '#f7c631',
+        '--ann-mistake': '#ffa459',
+        '--ann-missed': '#fa412d',
+        '--ann-blunder': '#fa412d',
+    };
+    Object.entries(colors).forEach(([token, color]) => {
+        assert.ok(css.includes(`${token}: ${color};`), `${token} deve usar ${color}`);
+    });
 });
 
 test('motor atualizado para o Stockfish 19 lite single com WDL capturado', async () => {

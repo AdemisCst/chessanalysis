@@ -95,6 +95,13 @@ const Openings = (() => {
         return null;
     }
 
+    /** True only while every supplied move remains a catalogued prefix. */
+    function isBookSequence(moves) {
+        if (!prefixIndex || !Array.isArray(moves) || !moves.length || moves.length > MAX_PLIES) return false;
+        const sans = moves.map(move => normalizeSan(move && move.san ? move.san : move));
+        return sans.every(Boolean) && prefixIndex.has(sans.join(' '));
+    }
+
     /**
      * Aplica a abertura reconhecida aos metadados. Mantém o cabeçalho original
      * quando a base não conhece a linha, para não apagar informação do PGN.
@@ -184,6 +191,7 @@ const Openings = (() => {
         DATA_URL,
         load,
         detect,
+        isBookSequence,
         enrichGame,
         enrichLibrary,
         compute,

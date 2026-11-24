@@ -87,10 +87,13 @@ const Stats = (() => {
         return { games: 0, win: 0, draw: 0, loss: 0, score: 0, pct: null };
     }
 
-    /** Contadores das sete anotações, separados por lado (você × adversário). */
+    /** Contadores das classificações, separados por lado (você × adversário). */
     function blankAnnotations() {
         const record = {};
-        ['brilliant', 'best', 'missed', 'blunder', 'mistake', 'excellent', 'good']
+        const keys = window.Engine && Array.isArray(window.Engine.ANNOTATION_ORDER)
+            ? window.Engine.ANNOTATION_ORDER
+            : ['brilliant', 'great', 'best', 'excellent', 'good', 'book', 'inaccuracy', 'mistake', 'missed', 'blunder'];
+        keys
             .forEach(key => { record[key] = 0; });
         return record;
     }

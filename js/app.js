@@ -541,9 +541,8 @@ async function migrateAnalysisProvenance(force) {
 }
 
 /**
- * Análises geradas antes da versão 2 não têm anotações (!!, ★, ×, ??, ?,
- * !, 👍), ACPL nem precisão por fase. Como as posições do Stockfish já estão
- * salvas, é possível reconstruir tudo sem reanalisar nenhuma partida.
+ * Atualiza análises para a classificação versionada sem reanalisar partidas.
+ * Posições antigas sem MultiPV 2 são reconstruídas sem inferir a segunda linha.
  *
  * A migração roda uma vez por navegador e grava o marcador `analysisMigration`
  * para não repetir o trabalho a cada abertura do aplicativo.
@@ -553,7 +552,7 @@ async function migrateAnalysisData(force) {
     // Reprocessar análises também reaplica a proveniência, sem alterar chaves.
     if (force) await migrateAnalysisProvenance(true);
     const marker = await DB.getMeta('analysisMigration').catch(() => null);
-    if (!force && marker && Number(marker.value) >= 3) return { updated: 0, skipped: true };
+    if (!force && marker && Number(marker.value) >= 4) return { updated: 0, skipped: true };
 
     const candidates = State.games;
     let updated = 0;
@@ -582,7 +581,7 @@ async function migrateAnalysisData(force) {
         }
     }
 
-    await DB.saveMeta('analysisMigration', 3).catch(() => {});
+    await DB.saveMeta('analysisMigration', 4).catch(() => {});
     if (updated) {
         renderLibrary();
         if ($('view-stats').classList.contains('active')) renderStatsView();

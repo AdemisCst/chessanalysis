@@ -250,24 +250,13 @@ erDiagram
 
 ### 6.2. Classificações
 
-**Estado atual (7 categorias):** Brilhante, Excelente, Melhor, Ótimo, Erro,
-Chance perdida, Capivarada — nesta ordem visual.
-
-**Ordem visual exigida na Fase 1:** Brilhante, Excelente, Melhor, Ótimo, Erro,
-Chance Perdida, Capivarada.
-
-**Destino (10 categorias, Fase 2):** Brilhante, Grande Lance, Melhor, Excelente,
-Bom, Livro, Imprecisão, Erro, Chance Perdida, Erro Grosseiro.
-
-**Decisão de escopo (17/11/2026):** os critérios das 10 categorias vêm da Seção
-10.11 do Prompt Mestre, que **não existe no workspace** — os documentos listam
-apenas os nomes. “Grande Lance” exige MultiPV 2 (hoje a análise usa MultiPV 1) e
-“Livro” exige integração com banco de aberturas (ECO). Por fugirem do escopo
-estrito da Fase 2 (motor e precisão), a implementação dessas 3 categorias foi
-**deferida para a Fase 2.5 ou Fase 5**; as **7 categorias atuais estão
-aprovadas**. Nenhum limiar foi inventado. O Expected Score que alimentará os
-critérios **já** é o da §3.1 (WDL na v3), então a futura troca não exigirá nova
-migração de dados.
+O motor classifica em dez categorias: Brilhante, Grande Lance, Melhor,
+Excelente, Bom, Livro, Imprecisão, Erro, Chance Perdida e Erro Grosseiro. As
+regras e os limites percentuais estão documentados em
+[`MODELO-DE-DADOS.md`](MODELO-DE-DADOS.md#3-classificações-de-movimento).
+MultiPV 2 fornece a segunda opção da posição; o catálogo ECO local verifica o
+prefixo completo até cada lance. `classificationVersion` permite reconstruir
+classificações anteriores sem alterar as avaliações salvas.
 
 A ordem visual não implica escala linear.
 
@@ -405,7 +394,7 @@ execução.
 | Stockfish 19/WDL | Implementado e testado (profundidade 6 e 12) |
 | Terminalidade (`depth 0`) | Corrigida e testada; `mate: 0` preservado |
 | Proveniência das análises | **Resolvida na Tarefa 2** (chave com build, migração, aviso, v3); deploy não executado |
-| 10 categorias de classificação | **Deferidas para a Fase 2.5/5** (MultiPV 2 + fonte ECO); 7 categorias aprovadas |
+| 10 categorias de classificação | Implementadas (limiares, MultiPV 2 e prefixos do catálogo ECO) |
 | Central de Análises | Planejada para a Fase 3 |
 | Chess.com/Lichess | Planejado para a Fase 4 |
 
