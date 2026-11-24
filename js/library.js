@@ -132,8 +132,11 @@ function askDuplicateMode(count) {
     });
 }
 
-async function importSources(sources) {
+async function importSources(sources, options) {
     if (!sources.length) return;
+    const importSource = options && (options.source === 'chesscom' || options.source === 'lichess')
+        ? options.source
+        : null;
 
     openModal({
         title: 'Importando partidas',
@@ -173,6 +176,7 @@ async function importSources(sources) {
             });
 
             parsed.games.forEach(game => {
+                if (importSource) game.source = importSource;
                 Openings.enrichGame(game);
                 // Tags por lado são calculadas na importação para aparecerem
                 // imediatamente na biblioteca, sem esperar a partida ser aberta.
@@ -356,7 +360,11 @@ function filteredGames() {
     const ident = identity();
     const tokens = State.filters.tokens.map(filterToken);
     const color = State.filters.color;
+    const source = State.filterSource || 'all';
     let list = State.games.filter(game => {
+        if (source === 'chesscom' && game.source !== 'chesscom') return false;
+        if (source === 'lichess' && game.source !== 'lichess') return false;
+        if (source === 'manual' && game.source !== 'manual' && game.source) return false;
         if (color && Stats.userColor(game, ident) !== color) return false;
         return tokens.every(token => matchesToken(game, token, ident));
     });
@@ -377,6 +385,23 @@ function filteredGames() {
         list.sort((a, b) => (b.dateISO || '0000').localeCompare(a.dateISO || '0000') || (b.importedAt || 0) - (a.importedAt || 0));
     }
     return list;
+}
+
+function updateSourceFilterButtons() {
+    document.querySelectorAll('#originFilters [data-source-filter]').forEach(button => {
+        const active = button.dataset.sourceFilter === (State.filterSource || 'all');
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+}
+
+function setSourceFilter(source) {
+    const valid = ['all', 'chesscom', 'lichess', 'manual'];
+    if (!valid.includes(source)) return;
+    State.filterSource = source;
+    State.page = 0;
+    updateSourceFilterButtons();
+    renderLibrary();
 }
 
 function renderFilterChips() {
@@ -537,6 +562,7 @@ function renderLibrary() {
 
     $('colorFilter').value = State.filters.color;
     $('sortSelect').value = State.filters.sort;
+    updateSourceFilterButtons();
 }
 
 /* ===================== AÇÕES ===================== */
@@ -773,11 +799,18 @@ function bindLibraryEvents() {
         renderLibrary();
     });
 
+    $('originFilters').addEventListener('click', event => {
+        const button = event.target.closest('[data-source-filter]');
+        if (button) setSourceFilter(button.dataset.sourceFilter);
+    });
+
     $('clearFiltersBtn').addEventListener('click', () => {
         State.filters.tokens = [];
         State.filters.color = '';
+        State.filterSource = 'all';
         State.page = 0;
         $('searchInput').value = '';
+        updateSourceFilterButtons();
         renderLibrary();
     });
 

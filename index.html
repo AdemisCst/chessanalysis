@@ -114,6 +114,12 @@
                     <option value="length_desc">Mais lances</option>
                     <option value="imported_desc">Importação (recente)</option>
                 </select>
+                <div id="originFilters" class="filter-pills" role="group" aria-label="Filtrar por origem">
+                    <button type="button" class="active" data-source-filter="all" aria-pressed="true">Todas</button>
+                    <button type="button" data-source-filter="chesscom" aria-pressed="false">Chess.com</button>
+                    <button type="button" data-source-filter="lichess" aria-pressed="false">Lichess</button>
+                    <button type="button" data-source-filter="manual" aria-pressed="false">Manuais</button>
+                </div>
             </div>
 
             <div id="syncSources" class="sync-sources hidden" aria-live="polite"></div>

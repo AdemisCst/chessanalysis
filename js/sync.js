@@ -399,7 +399,7 @@ const Sync = (() => {
                 await importSources([{
                     name: `${SOURCES[source].label} - ${username}.pgn`,
                     text: candidates.map(game => PGN.serialize(game)).join('\n\n'),
-                }]);
+                }], { source });
             } else {
                 closeModal();
             }

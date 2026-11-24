@@ -133,6 +133,7 @@ async function clearLibrary() {
     State.aiCacheLoaded = false;
     State.importReport = null;
     State.filters = { tokens: [], color: '', sort: 'date_desc' };
+    State.filterSource = 'all';
     $('searchInput').value = '';
     $('gameContent').classList.add('hidden');
     $('noGame').classList.remove('hidden');

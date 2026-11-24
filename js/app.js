@@ -29,6 +29,7 @@ const State = {
     importReport: null,
     selected: new Set(),
     filters: { tokens: [], color: '', sort: 'date_desc' },
+    filterSource: 'all',
 };
 
 const $ = id => document.getElementById(id);
