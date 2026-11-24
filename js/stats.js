@@ -134,14 +134,72 @@ const Stats = (() => {
         return 'Não informado';
     }
 
-    function compute(games, configuredNames) {
-        const identity = identifyPlayer(games, configuredNames);
+    function filterGames(games, filters, now) {
+        const selected = filters || {};
+        const source = selected.source || 'all';
+        const timeControl = selected.timeControl || 'all';
+        let from = '';
+        let to = '';
+
+        if (selected.period === 'custom') {
+            from = selected.dateFrom || '';
+            to = selected.dateTo || '';
+        } else {
+            const daysByPeriod = { '30d': 30, '90d': 90, '365d': 365 };
+            const days = daysByPeriod[selected.period];
+            if (days) {
+                const current = now ? new Date(now) : new Date();
+                if (!Number.isNaN(current.getTime())) {
+                    const today = new Date(current.getFullYear(), current.getMonth(), current.getDate());
+                    const start = new Date(today);
+                    start.setDate(start.getDate() - days + 1);
+                    const isoDate = date => [
+                        date.getFullYear(),
+                        String(date.getMonth() + 1).padStart(2, '0'),
+                        String(date.getDate()).padStart(2, '0'),
+                    ].join('-');
+                    from = isoDate(start);
+                    to = isoDate(today);
+                }
+            }
+        }
+
+        if (from && to && from > to) return [];
+        return (games || []).filter(game => {
+            const gameSource = game.source || 'manual';
+            if (source === 'manual') {
+                if (gameSource !== 'manual') return false;
+            } else if (source !== 'all' && gameSource !== source) {
+                return false;
+            }
+            if (timeControl !== 'all' && timeControlCategory(game) !== timeControl) return false;
+            if ((from || to) && (!game.dateISO || (from && game.dateISO < from) || (to && game.dateISO > to))) {
+                return false;
+            }
+            return true;
+        });
+    }
+
+    function hasValidAnalysis(game, summary) {
+        const engine = window.Engine;
+        if (!summary || !engine || !engine.BUILD_ID || summary.scoreSource !== 'wdl') return false;
+        if (summary.version != null && Number(summary.version) !== 3) return false;
+        const build = summary.engineBuild
+            || game.analyzedBuild
+            || (typeof engine.buildOf === 'function' ? engine.buildOf(summary) : '');
+        return build === engine.BUILD_ID;
+    }
+
+    function compute(games, configuredNames, options) {
+        const opts = options || {};
+        const identity = opts.identity || identifyPlayer(games, configuredNames);
+        const includeRating = opts.includeRating !== false;
         const resultCounts = { '1-0': 0, '0-1': 0, '1/2-1/2': 0, '*': 0 };
         const overall = blankRecord();
         const byColor = { w: blankRecord(), b: blankRecord() };
         const openings = new Map();
         const timeControls = new Map();
-        const years = new Map();
+        const years = includeRating ? new Map() : null;
         const eloSeries = [];
         const phases = { opening: 0, middlegame: 0, endgame: 0 };
         const accuracy = { w: [], b: [] };
@@ -161,7 +219,8 @@ const Stats = (() => {
         const phaseBrilliants = { opening: 0, middlegame: 0, endgame: 0 };
         const phaseBrilliantsUser = { opening: 0, middlegame: 0, endgame: 0 };
         const opponentElos = [];
-        let otherEngine = 0;
+        let analyzed = 0;
+        let excludedAnalyses = 0;
 
         games.forEach(game => {
             resultCounts[game.result] = (resultCounts[game.result] || 0) + 1;
@@ -187,7 +246,7 @@ const Stats = (() => {
             if (!timeControls.has(tc)) timeControls.set(tc, blankRecord());
             addOutcome(timeControls.get(tc), result);
 
-            if (game.year) {
+            if (includeRating && game.year) {
                 if (!years.has(game.year)) years.set(game.year, { year: game.year, record: blankRecord(), eloSum: 0, eloCount: 0 });
                 const entry = years.get(game.year);
                 addOutcome(entry.record, result);
@@ -195,7 +254,7 @@ const Stats = (() => {
                 if (elo) { entry.eloSum += elo; entry.eloCount++; }
             }
 
-            if (color) {
+            if (includeRating && color) {
                 const elo = color === 'w' ? game.whiteElo : game.blackElo;
                 if (elo && (game.dateISO || game.year)) {
                     eloSeries.push({
@@ -213,14 +272,10 @@ const Stats = (() => {
 
             if (game.analysisSummary) {
                 const summary = game.analysisSummary;
-                const summaryBuild = summary.engineBuild
-                    || (window.Engine && typeof Engine.buildOf === 'function' ? Engine.buildOf(summary) : '');
-                const currentBuild = window.Engine ? Engine.BUILD_ID : summaryBuild;
-                if (summaryBuild && summaryBuild !== currentBuild) {
-                    // Precisão, ACPL e contagens de outro motor não entram nas
-                    // médias: seriam números de metodologias diferentes.
-                    otherEngine++;
+                if (!hasValidAnalysis(game, summary)) {
+                    excludedAnalyses++;
                 } else {
+                    analyzed++;
                     if (summary.phaseBlunders) {
                         phases.opening += summary.phaseBlunders.opening || 0;
                         phases.middlegame += summary.phaseBlunders.middlegame || 0;
@@ -293,6 +348,9 @@ const Stats = (() => {
                 draw: item.record.draw,
                 loss: item.record.loss,
                 pct: item.record.pct,
+                winRate: item.record.win + item.record.draw + item.record.loss
+                    ? Math.round((item.record.win / (item.record.win + item.record.draw + item.record.loss)) * 1000) / 10
+                    : null,
                 resultCounts: item.resultCounts,
                 decided: item.record.win + item.record.draw + item.record.loss,
             }))
@@ -307,7 +365,7 @@ const Stats = (() => {
             pct: record.pct,
         })).sort((a, b) => b.games - a.games);
 
-        const yearList = Array.from(years.values()).map(entry => ({
+        const yearList = includeRating ? Array.from(years.values()).map(entry => ({
             year: entry.year,
             games: entry.record.games,
             win: entry.record.win,
@@ -315,10 +373,9 @@ const Stats = (() => {
             loss: entry.record.loss,
             pct: entry.record.pct,
             avgElo: entry.eloCount ? Math.round(entry.eloSum / entry.eloCount) : null,
-        })).sort((a, b) => a.year - b.year);
+        })).sort((a, b) => a.year - b.year) : null;
 
-        eloSeries.sort((a, b) => a.date.localeCompare(b.date));
-        const analyzed = games.filter(game => game.analysisSummary).length;
+        if (includeRating) eloSeries.sort((a, b) => a.date.localeCompare(b.date));
 
         function avg(list) {
             if (!list.length) return null;
@@ -336,11 +393,13 @@ const Stats = (() => {
                 accuracy: avg(precision.userAccuracy),
                 acpl: avgInt(precision.userAcpl),
                 games: precision.userAccuracy.length,
+                acplGames: precision.userAcpl.length,
             },
             opponent: {
                 accuracy: avg(precision.opponentAccuracy),
                 acpl: avgInt(precision.opponentAcpl),
                 games: precision.opponentAccuracy.length,
+                acplGames: precision.opponentAcpl.length,
             },
             phase: {
                 opening: { user: avg(precision.phase.opening.user), opponent: avg(precision.phase.opening.opponent) },
@@ -358,10 +417,10 @@ const Stats = (() => {
             };
         });
 
-        const opponentRating = {
+        const opponentRating = includeRating ? {
             average: avgInt(opponentElos),
             games: opponentElos.length,
-        };
+        } : null;
 
         const stats = {
             total: games.length,
@@ -371,21 +430,24 @@ const Stats = (() => {
             overall,
             byColor,
             openings: openingList,
+            topOpenings: openingList.slice(0, 5),
             timeControls: timeControlList,
-            years: yearList,
-            eloSeries,
             phases,
             accuracy: { w: avg(accuracy.w), b: avg(accuracy.b) },
             precision: precisionResult,
-            otherEngine,
+            excludedAnalyses,
             annotations,
             brilliantPhases,
-            opponentRating,
             worstOpenings: openingList
                 .filter(item => item.decided >= 3 && item.pct != null)
                 .sort((a, b) => a.pct - b.pct)
                 .slice(0, 6),
         };
+        if (includeRating) {
+            stats.years = yearList;
+            stats.eloSeries = eloSeries;
+            stats.opponentRating = opponentRating;
+        }
         stats.brief = buildBrief(stats);
         return stats;
     }
@@ -436,14 +498,14 @@ const Stats = (() => {
             },
             erros_graves_por_fase: stats.phases,
             brilhantes_por_fase: stats.brilliantPhases,
-            rating_medio_adversarios: stats.opponentRating,
             aberturas_em_alerta: stats.worstOpenings.map(item => ({
                 abertura: item.name,
                 jogos: item.games,
                 aproveitamento: item.pct,
             })),
         };
-        if (stats.eloSeries.length >= 2) {
+        if (stats.opponentRating) brief.rating_medio_adversarios = stats.opponentRating;
+        if (stats.eloSeries && stats.eloSeries.length >= 2) {
             const first = stats.eloSeries[0];
             const last = stats.eloSeries[stats.eloSeries.length - 1];
             brief.rating = { primeiro: first.elo, ultimo: last.elo, variacao: last.elo - first.elo };
@@ -453,6 +515,7 @@ const Stats = (() => {
 
     return {
         compute,
+        filterGames,
         identifyPlayer,
         userColor,
         outcome,

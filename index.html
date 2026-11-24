@@ -368,7 +368,7 @@
                     <h3>Desempenho por abertura</h3>
                     <span id="openingsCount" class="muted small"></span>
                 </div>
-                <div id="openingsTable" class="mini-table-wrap"></div>
+                <div id="openingsViewTable" class="mini-table-wrap"></div>
             </div>
             <p class="hint">A detecção usa o maior prefixo conhecido de lances. A base é local e não envia nada para a internet.</p>
         </section>
@@ -386,6 +386,42 @@
                 </div>
             </div>
             <div id="statsIdentity" class="notice hidden"></div>
+            <div id="statsFilters" class="inline-actions" aria-label="Filtros de desempenho">
+                <label class="label" for="statsSourceFilter">Origem
+                    <select id="statsSourceFilter" class="select">
+                        <option value="all">Todas</option>
+                        <option value="chesscom">Chess.com</option>
+                        <option value="lichess">Lichess</option>
+                        <option value="manual">Manuais</option>
+                    </select>
+                </label>
+                <label class="label" for="statsTimeControlFilter">Controle de tempo
+                    <select id="statsTimeControlFilter" class="select">
+                        <option value="all">Todos</option>
+                        <option value="Bullet">Bullet</option>
+                        <option value="Blitz">Blitz</option>
+                        <option value="Rápido">Rápido</option>
+                        <option value="Clássico">Clássico</option>
+                        <option value="Correspondência">Correspondência</option>
+                        <option value="Não informado">Não informado</option>
+                    </select>
+                </label>
+                <label class="label" for="statsPeriodFilter">Período
+                    <select id="statsPeriodFilter" class="select">
+                        <option value="all">Todo o período</option>
+                        <option value="30d">Últimos 30 dias</option>
+                        <option value="90d">Últimos 90 dias</option>
+                        <option value="365d">Últimos 12 meses</option>
+                        <option value="custom">Datas específicas</option>
+                    </select>
+                </label>
+                <label class="label" for="statsDateFrom">De
+                    <input id="statsDateFrom" class="input" type="date" disabled>
+                </label>
+                <label class="label" for="statsDateTo">Até
+                    <input id="statsDateTo" class="input" type="date" disabled>
+                </label>
+            </div>
             <div id="statsCards" class="stat-cards"></div>
             <div class="stats-grid">
                 <div class="panel span-2">
@@ -423,10 +459,6 @@
                 <div class="panel">
                     <h3>Fase dos erros graves</h3>
                     <div id="phaseChart" class="phase-chart"></div>
-                </div>
-                <div class="panel span-2">
-                    <h3>Evolução de rating</h3>
-                    <div id="ratingChart" class="chart"></div>
                 </div>
             </div>
         </section>

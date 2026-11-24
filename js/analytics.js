@@ -13,7 +13,7 @@
  */
 function renderOpeningsView() {
     const identityBox = $('openingsIdentity');
-    const tableBox = $('openingsTable');
+    const tableBox = $('openingsViewTable');
     if (!tableBox) return;
     const identity = Stats.identifyPlayer(State.games, Settings.playerNameList());
     State.openingsIdentity = identity;
@@ -89,9 +89,34 @@ function pctText(value) {
     return value == null ? '—' : value.toFixed(1).replace('.', ',') + '%';
 }
 
+function selectedStatsFilters() {
+    return {
+        source: $('statsSourceFilter').value,
+        timeControl: $('statsTimeControlFilter').value,
+        period: $('statsPeriodFilter').value,
+        dateFrom: $('statsDateFrom').value,
+        dateTo: $('statsDateTo').value,
+    };
+}
+
+function updateStatsDateControls() {
+    const custom = $('statsPeriodFilter').value === 'custom';
+    const from = $('statsDateFrom');
+    const to = $('statsDateTo');
+    from.disabled = !custom;
+    to.disabled = !custom;
+    from.max = to.value || '';
+    to.min = from.value || '';
+}
+
 function renderStatsView() {
-    const stats = Stats.compute(State.games, Settings.playerNameList());
+    const names = Settings.playerNameList();
+    const identity = Stats.identifyPlayer(State.games, names);
+    const filters = selectedStatsFilters();
+    const games = Stats.filterGames(State.games, filters);
+    const stats = Stats.compute(games, names, { identity, includeRating: false });
     State.stats = stats;
+    State.statsFilters = filters;
 
     const identityBox = $('statsIdentity');
     if (stats.identity.name) {
@@ -102,19 +127,20 @@ function renderStatsView() {
         identityBox.classList.remove('hidden');
     } else if (stats.total) {
         identityBox.className = 'notice';
-        identityBox.innerHTML = `Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nas Configurações</button> para ver aproveitamento por cor, rating e repertório.`;
+        identityBox.innerHTML = `Ainda não sei qual jogador é você. <button class="link-btn" data-open-settings>Defina seu nome nas Configurações</button> para ver aproveitamento por cor e repertório.`;
         identityBox.classList.remove('hidden');
     } else {
         identityBox.classList.add('hidden');
     }
 
     if (!stats.total) {
-        $('statsCards').innerHTML = '<div class="notice accent">Importe partidas para ver as estatísticas.</div>';
+        $('statsCards').innerHTML = State.games.length
+            ? '<div class="notice accent">Nenhuma partida corresponde aos filtros selecionados.</div>'
+            : '<div class="notice accent">Importe partidas para ver as estatísticas.</div>';
         $('openingsTable').innerHTML = '';
         $('colorTable').innerHTML = '';
         $('timeControlTable').innerHTML = '';
         $('phaseChart').innerHTML = '';
-        $('ratingChart').innerHTML = '<div class="chart-empty">Sem dados.</div>';
         $('precisionPanel').innerHTML = '';
         $('annotationDistribution').innerHTML = '';
         $('phaseAccuracy').innerHTML = '';
@@ -125,9 +151,11 @@ function renderStatsView() {
 
     const hasIdentity = !!stats.identity.name;
     const accuracyList = [stats.accuracy.w, stats.accuracy.b].filter(value => value != null);
-    const avgAccuracy = accuracyList.length
-        ? (accuracyList.reduce((sum, value) => sum + value, 0) / accuracyList.length).toFixed(1).replace('.', ',') + '%'
-        : '—';
+    const avgAccuracy = hasIdentity
+        ? pctText(stats.precision.user.accuracy)
+        : accuracyList.length
+            ? (accuracyList.reduce((sum, value) => sum + value, 0) / accuracyList.length).toFixed(1).replace('.', ',') + '%'
+            : '—';
 
     if (hasIdentity) {
         $('statsCards').innerHTML = [
@@ -135,8 +163,9 @@ function renderStatsView() {
             statCard('Aproveitamento', pctText(stats.overall.pct), `${stats.overall.win}V · ${stats.overall.draw}E · ${stats.overall.loss}D`),
             statCard('Como brancas', pctText(stats.byColor.w.pct), `${stats.byColor.w.games} partidas`),
             statCard('Como pretas', pctText(stats.byColor.b.pct), `${stats.byColor.b.games} partidas`),
-            statCard('Precisão média', avgAccuracy, `${stats.analyzed} partida(s) analisada(s)`),
-            statCard('Rating', stats.eloSeries.length ? String(stats.eloSeries[stats.eloSeries.length - 1].elo) : '—', 'último registrado'),
+            statCard('Precisão média', avgAccuracy, `${stats.precision.user.games} analisada(s) · SF19 v3`),
+            statCard('ACPL médio', stats.precision.user.acpl == null ? '—' : String(stats.precision.user.acpl),
+                `${stats.precision.user.acplGames} analisada(s) · SF19 v3`),
         ].join('');
     } else {
         $('statsCards').innerHTML = [
@@ -144,16 +173,16 @@ function renderStatsView() {
             statCard('Brancas venceram', String(stats.resultCounts['1-0']), 'resultado 1–0'),
             statCard('Empates', String(stats.resultCounts['1/2-1/2']), 'resultado ½–½'),
             statCard('Pretas venceram', String(stats.resultCounts['0-1']), 'resultado 0–1'),
-            statCard('Analisadas', String(stats.analyzed), 'com Stockfish'),
-            statCard('Precisão média', avgAccuracy, 'quando analisadas'),
+            statCard('Analisadas', String(stats.analyzed), 'SF19 v3'),
+            statCard('Precisão média', avgAccuracy, 'Brancas e pretas · SF19 v3'),
         ].join('');
     }
 
-    const openingRows = stats.openings.slice(0, 12).map(item => {
+    const openingRows = stats.topOpenings.map(item => {
         if (hasIdentity) {
             return `<tr><td>${escapeHtml(item.name)}${item.eco ? ` <span class="muted small">${escapeHtml(item.eco)}</span>` : ''}</td>
                 <td class="num">${item.games}</td><td class="num">${item.win}</td><td class="num">${item.draw}</td>
-                <td class="num">${item.loss}</td><td class="num">${pctText(item.pct)}</td></tr>`;
+                <td class="num">${item.loss}</td><td class="num">${pctText(item.winRate)}</td></tr>`;
         }
         return `<tr><td>${escapeHtml(item.name)}${item.eco ? ` <span class="muted small">${escapeHtml(item.eco)}</span>` : ''}</td>
             <td class="num">${item.games}</td><td class="num">${item.resultCounts['1-0'] || 0}</td>
@@ -162,7 +191,7 @@ function renderStatsView() {
     $('openingsTable').innerHTML = `
         <table class="mini-table">
             <thead><tr><th>Abertura</th><th class="num">Jogos</th>${hasIdentity
-                ? '<th class="num">V</th><th class="num">E</th><th class="num">D</th><th class="num">%</th>'
+                ? '<th class="num">V</th><th class="num">E</th><th class="num">D</th><th class="num">Taxa de vitória</th>'
                 : '<th class="num">1–0</th><th class="num">½</th><th class="num">0–1</th>'}</tr></thead>
             <tbody>${openingRows || '<tr><td colspan="6" class="muted">Sem dados.</td></tr>'}</tbody>
         </table>`;
@@ -213,7 +242,6 @@ function renderStatsView() {
     renderPhaseAccuracy(stats);
     renderBrilliantPhase(stats);
     renderAccuracyChart(stats);
-    renderRatingChart(stats);
 }
 
 /* ---------- precisão, ACPL, anotações e brilhantes ---------- */
@@ -221,8 +249,8 @@ function renderPrecisionPanel(stats) {
     const box = $('precisionPanel');
     if (!box) return;
     const precision = stats.precision;
-    const legacyNote = stats.otherEngine
-        ? `<p class="muted small">${stats.otherEngine} partida(s) com análise de outro motor não entram nestas médias.</p>`
+    const legacyNote = stats.excludedAnalyses
+        ? `<p class="muted small">${stats.excludedAnalyses} partida(s) sem análise SF19 v3 foram excluídas destas médias.</p>`
         : '';
     if (!precision || !precision.user.games) {
         box.innerHTML = '<p class="muted small">Analise pelo menos uma partida com Stockfish para comparar sua precisão com a dos adversários.</p>' + legacyNote;
@@ -231,7 +259,7 @@ function renderPrecisionPanel(stats) {
     const card = (label, data) => `<div class="precision-card">
         <span>${label}</span>
         <strong>${pctText(data.accuracy)}</strong>
-        <span>ACPL ${data.acpl == null ? '—' : data.acpl} · ${data.games} partida(s)</span>
+        <span>ACPL ${data.acpl == null ? '—' : data.acpl} · ${data.acplGames} partida(s)</span>
     </div>`;
     box.innerHTML = `<div class="precision-grid">${card('Você', precision.user)}${card('Adversários', precision.opponent)}</div>` + legacyNote;
 }
@@ -332,50 +360,6 @@ function renderAccuracyChart(stats) {
             ${dots}
         </svg>
         <p class="muted small">${series.length} partida(s) analisada(s) · de ${formatDate(series[0].date)} a ${formatDate(series[series.length - 1].date)}. Clique em um ponto para abrir a partida.</p>`;
-}
-
-function renderRatingChart(stats) {
-    const box = $('ratingChart');
-    if (!stats.identity.name) {
-        box.innerHTML = '<div class="chart-empty">Defina seu nome para acompanhar a evolução do rating.</div>';
-        return;
-    }
-    const series = stats.eloSeries;
-    if (series.length < 2) {
-        box.innerHTML = '<div class="chart-empty">São necessárias pelo menos duas partidas com rating e data.</div>';
-        return;
-    }
-    const width = 720;
-    const height = 220;
-    const padX = 46;
-    const padY = 26;
-    const values = series.map(point => point.elo);
-    let min = Math.min(...values);
-    let max = Math.max(...values);
-    if (min === max) { min -= 20; max += 20; }
-    const range = max - min;
-    const x = index => padX + (index / (series.length - 1)) * (width - padX * 2);
-    const y = elo => padY + ((max - elo) / range) * (height - padY * 2);
-    const points = series.map((point, index) => `${x(index).toFixed(1)},${y(point.elo).toFixed(1)}`).join(' ');
-    const area = `${padX},${height - padY} ${points} ${width - padX},${height - padY}`;
-    const gridLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
-        const gy = padY + ratio * (height - padY * 2);
-        const value = Math.round(max - ratio * range);
-        return `<line x1="${padX}" y1="${gy}" x2="${width - padX}" y2="${gy}" stroke="var(--border)" stroke-width="1"/>
-                <text x="${padX - 8}" y="${gy + 4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${value}</text>`;
-    }).join('');
-    const dots = series.map((point, index) =>
-        `<circle cx="${x(index).toFixed(1)}" cy="${y(point.elo).toFixed(1)}" r="3.2" fill="var(--accent)" data-game="${escapeHtml(point.gameId)}">
-            <title>${escapeHtml(`${formatDate(point.date)} · ${point.elo} · ${point.opponent} · ${point.result}`)}</title>
-        </circle>`).join('');
-
-    box.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="Evolução de rating">
-        ${gridLines}
-        <polygon points="${area}" fill="var(--accent)" opacity="0.10"/>
-        <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
-        ${dots}
-    </svg>
-    <p class="muted small">${series.length} partidas com rating · de ${formatDate(series[0].date)} a ${formatDate(series[series.length - 1].date)}. Clique em um ponto para abrir a partida.</p>`;
 }
 
 /* ===================== IA: LEITURA E REPERTÓRIO ===================== */
@@ -805,6 +789,21 @@ function clearChat() {
 
 /* ===================== EVENTOS ===================== */
 function bindAnalyticsEvents() {
+    updateStatsDateControls();
+    ['statsSourceFilter', 'statsTimeControlFilter'].forEach(id => {
+        $(id).addEventListener('change', renderStatsView);
+    });
+    $('statsPeriodFilter').addEventListener('change', () => {
+        updateStatsDateControls();
+        renderStatsView();
+    });
+    ['statsDateFrom', 'statsDateTo'].forEach(id => {
+        $(id).addEventListener('change', () => {
+            $('statsPeriodFilter').value = 'custom';
+            updateStatsDateControls();
+            renderStatsView();
+        });
+    });
     $('statsToAiBtn').addEventListener('click', () => {
         setView('ai');
         loadAICache();
@@ -813,16 +812,12 @@ function bindAnalyticsEvents() {
     $('statsIdentity').addEventListener('click', event => {
         if (event.target.closest('[data-open-settings]')) setView('settings');
     });
-    $('ratingChart').addEventListener('click', event => {
-        const dot = event.target.closest('[data-game]');
-        if (dot) openGame(dot.dataset.game);
-    });
     $('accuracyChart').addEventListener('click', event => {
         const dot = event.target.closest('[data-game]');
         if (dot) openGame(dot.dataset.game);
     });
     $('openingsColor').addEventListener('change', renderOpeningsView);
-    $('openingsTable').addEventListener('click', event => {
+    $('openingsViewTable').addEventListener('click', event => {
         const button = event.target.closest('[data-game]');
         if (button) openGame(button.dataset.game);
     });
